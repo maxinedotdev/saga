@@ -1,3 +1,9 @@
+## [Unreleased]
+
+### Features
+
+* add OpenAI-compatible AI search providers (LM Studio, synthetic.new) with configurable provider selection
+
 # [1.12.0](https://github.com/andrea9293/mcp-documentation-server/compare/v1.11.2...v1.12.0) (2025-12-02)
 
 
