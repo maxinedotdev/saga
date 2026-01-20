@@ -511,6 +511,26 @@ export class DocumentManager {
         }
     }
 
+    async deleteCrawlSession(crawlId: string): Promise<{ deleted: number; errors: string[] }> {
+        const documents = await this.getAllDocuments();
+        const toDelete = documents.filter(doc => doc.metadata?.crawl_id === crawlId);
+        const errors: string[] = [];
+        let deleted = 0;
+
+        for (const document of toDelete) {
+            try {
+                const success = await this.deleteDocument(document.id);
+                if (success) {
+                    deleted += 1;
+                }
+            } catch (error) {
+                errors.push(`${document.id}: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }
+
+        return { deleted, errors };
+    }
+
     /**
      * Get performance and cache statistics
      */
