@@ -105,7 +105,7 @@ The server exposes several tools (validated with Zod schemas) for document lifec
 
 Configure behavior via environment variables. Important options:
 
-- `MCP_BASE_DIR` — base directory for data storage (default: `~/.mcp-documentation-server`). Set this to use independent workspaces.
+- `MCP_BASE_DIR` — base directory for data storage (default: `~/.mcp-documentation-server`). Supports `~` expansion for the home directory.
 - `MCP_EMBEDDING_PROVIDER` — embedding provider selection: `transformers` or `openai` (optional; defaults to `transformers`).
 - `MCP_EMBEDDING_MODEL` — embedding model name. Defaults to `Xenova/all-MiniLM-L6-v2` for Transformers.js or `text-embedding-nomic-embed-text-v1.5` for LM Studio.
 - `MCP_EMBEDDING_BASE_URL` — OpenAI-compatible embeddings base URL (required for `openai`, e.g. `http://127.0.0.1:1234`).

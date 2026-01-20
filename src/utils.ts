@@ -8,12 +8,22 @@ export function getDefaultDataDir(): string {
     // Check for MCP_BASE_DIR environment variable first
     const baseDir = process.env.MCP_BASE_DIR?.trim();
     if (baseDir) {
-        return baseDir;
+        return expandHomeDir(baseDir);
     }
     
     // Fall back to home directory
     const homeDir = os.homedir();
     return path.join(homeDir, '.mcp-documentation-server');
+}
+
+function expandHomeDir(value: string): string {
+    if (value === '~') {
+        return os.homedir();
+    }
+    if (value.startsWith('~/') || value.startsWith('~\\')) {
+        return path.join(os.homedir(), value.slice(2));
+    }
+    return value;
 }
 
 /**
