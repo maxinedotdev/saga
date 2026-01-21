@@ -16,7 +16,7 @@ export function getDefaultDataDir(): string {
     return path.join(homeDir, '.mcp-documentation-server');
 }
 
-function expandHomeDir(value: string): string {
+export function expandHomeDir(value: string): string {
     if (value === '~') {
         return os.homedir();
     }

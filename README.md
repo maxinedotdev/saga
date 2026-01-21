@@ -59,7 +59,7 @@ Example configuration for an MCP client (e.g., Claude Desktop):
       "env": {
             "MCP_BASE_DIR": "/path/to/workspace",  // Optional, custom data directory (default: ~/.mcp-documentation-server)
             "MCP_VECTOR_DB": "lance",  // Optional, "lance" (default) or "memory" (legacy in-memory)
-            "MCP_LANCE_DB_PATH": "./data/lancedb",  // Optional, custom LanceDB path (default: {dataDir}/lancedb)
+            "MCP_LANCE_DB_PATH": "~/.data/lancedb",  // Optional, custom LanceDB path (default: {dataDir}/lancedb)
             "MCP_EMBEDDING_PROVIDER": "transformers",  // Optional, "transformers" or "openai"
             "MCP_EMBEDDING_MODEL": "Xenova/all-MiniLM-L6-v2",
             "MCP_EMBEDDING_BASE_URL": "http://127.0.0.1:1234",  // Optional, OpenAI-compatible embeddings base URL
@@ -177,7 +177,7 @@ Example `.env` (defaults applied when variables are not set):
 ```env
 # Vector Database Configuration
 MCP_VECTOR_DB=lance               # "lance" (default) or "memory" (legacy)
-MCP_LANCE_DB_PATH=./data/lancedb  # Custom LanceDB path (optional)
+MCP_LANCE_DB_PATH=~/.data/lancedb  # Custom LanceDB path (optional)
 
 # Base Directory
 MCP_BASE_DIR=/path/to/workspace   # Base directory for data storage (default: ~/.mcp-documentation-server)

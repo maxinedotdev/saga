@@ -7,7 +7,7 @@ import { Document, DocumentChunk, SearchResult, EmbeddingProvider } from './type
 import { SimpleEmbeddingProvider } from './embedding-provider.js';
 import { IntelligentChunker } from './intelligent-chunker.js';
 import { extractText } from 'unpdf';
-import { getDefaultDataDir } from './utils.js';
+import { getDefaultDataDir, expandHomeDir } from './utils.js';
 import { DocumentIndex } from './indexing/document-index.js';
 import { GeminiFileMappingService } from './gemini-file-mapping-service.js';
 import type { VectorDatabase } from './vector-db/lance-db.js';
@@ -79,7 +79,8 @@ export class DocumentManager {
      */
     private createVectorDatabase(): VectorDatabase {
         const dbType = process.env.MCP_VECTOR_DB || 'lance';
-        const dbPath = process.env.MCP_LANCE_DB_PATH || path.join(getDefaultDataDir(), 'lancedb');
+        const dbPathEnv = process.env.MCP_LANCE_DB_PATH;
+        const dbPath = dbPathEnv ? expandHomeDir(dbPathEnv) : path.join(getDefaultDataDir(), 'lancedb');
         return createVectorDatabase(dbType, dbPath);
     }
 

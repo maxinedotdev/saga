@@ -6,6 +6,7 @@
  */
 
 import * as path from "path";
+import * as os from "os";
 import { DocumentChunk, SearchResult } from "../types.js";
 import { getLogger } from "../utils.js";
 import * as lancedb from "@lancedb/lancedb";
@@ -410,7 +411,7 @@ export function createVectorDatabase(
     switch (type) {
         case "lance":
         case "lancedb":
-            const dbPathValue = dbPath || path.join(process.cwd(), "data", "lancedb");
+            const dbPathValue = dbPath || path.join(os.homedir(), ".data", "lancedb");
             return new LanceDBAdapter(dbPathValue);
         
         case "memory":
