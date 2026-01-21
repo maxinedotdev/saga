@@ -192,6 +192,7 @@ function tryNormalizeUrl(value: string): string | null {
         if (!['http:', 'https:'].includes(parsed.protocol)) {
             return null;
         }
+        parsed.pathname = parsed.pathname.replace(/\/+/g, '/');
         return normalizeUrlForSet(parsed);
     } catch {
         return null;
@@ -201,6 +202,7 @@ function tryNormalizeUrl(value: string): string | null {
 function normalizeUrlForSet(url: URL): string {
     const normalized = new URL(url.toString());
     normalized.hash = '';
+    normalized.pathname = normalized.pathname.replace(/\/+/g, '/');
     if (normalized.pathname.endsWith('/') && normalized.pathname !== '/') {
         normalized.pathname = normalized.pathname.replace(/\/+$/, '');
     }
@@ -442,6 +444,7 @@ function resolveUrl(value: string, origin: string): string | null {
         if (!['http:', 'https:'].includes(resolved.protocol)) {
             return null;
         }
+        resolved.pathname = resolved.pathname.replace(/\/+/g, '/');
         return resolved.toString();
     } catch {
         return null;
