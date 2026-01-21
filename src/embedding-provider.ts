@@ -16,6 +16,60 @@ function getModelDimensions(modelName: string): number {
     return modelDimensions[modelName] || 384;
 }
 
+const DEFAULT_LOCAL_OPENAI_BASE_URL = 'http://127.0.0.1:1234';
+const DEFAULT_OPENAI_EMBEDDING_MODEL = 'text-embedding-nomic-embed-text-v1.5';
+
+type EmbeddingProviderType = 'transformers' | 'openai';
+
+function normalizeBaseUrl(url: string): string {
+    return url.replace(/\/+$/, '');
+}
+
+function stripV1Suffix(url: string): string {
+    return normalizeBaseUrl(url).replace(/\/v1$/, '');
+}
+
+function ensureOpenAiBaseUrl(url: string): string {
+    const normalized = normalizeBaseUrl(url);
+    return normalized.endsWith('/v1') ? normalized : `${normalized}/v1`;
+}
+
+function resolveEmbeddingProviderType(): EmbeddingProviderType {
+    const providerEnv = process.env.MCP_EMBEDDING_PROVIDER?.toLowerCase();
+
+    if (!providerEnv || providerEnv === 'transformers') {
+        return 'transformers';
+    }
+    if (providerEnv === 'openai') {
+        return 'openai';
+    }
+
+    throw new Error(`Unknown MCP_EMBEDDING_PROVIDER value: ${providerEnv}`);
+}
+
+function resolveOpenAiEmbeddingConfig(modelName?: string): { baseUrl: string; model: string; apiKey?: string } {
+    const baseUrl = process.env.MCP_EMBEDDING_BASE_URL;
+    if (!baseUrl) {
+        throw new Error('MCP_EMBEDDING_BASE_URL is required for OpenAI-compatible embeddings.');
+    }
+
+    const defaultModel =
+        stripV1Suffix(baseUrl) === DEFAULT_LOCAL_OPENAI_BASE_URL
+            ? DEFAULT_OPENAI_EMBEDDING_MODEL
+            : null;
+    const resolvedModel = modelName || process.env.MCP_EMBEDDING_MODEL || defaultModel;
+
+    if (!resolvedModel) {
+        throw new Error('MCP_EMBEDDING_MODEL is required when MCP_EMBEDDING_BASE_URL is not a known default.');
+    }
+
+    return {
+        baseUrl: ensureOpenAiBaseUrl(baseUrl),
+        model: resolvedModel,
+        apiKey: process.env.MCP_EMBEDDING_API_KEY,
+    };
+}
+
 /**
  * Embedding provider using Transformers.js for local embeddings
  */
@@ -153,6 +207,105 @@ export class TransformersEmbeddingProvider implements EmbeddingProvider {
 }
 
 /**
+ * Embedding provider using OpenAI-compatible /v1/embeddings endpoints
+ */
+export class OpenAiEmbeddingProvider implements EmbeddingProvider {
+    private dimensions: number | null = null;
+    private cache: EmbeddingCache | null = null;
+
+    constructor(
+        private baseUrl: string,
+        private modelName: string,
+        private apiKey?: string
+    ) {
+        if (process.env.MCP_CACHE_ENABLED !== 'false') {
+            try {
+                this.cache = new EmbeddingCache();
+            } catch (error) {
+                console.warn('[OpenAiEmbeddingProvider] Failed to initialize cache:', error);
+            }
+        }
+    }
+
+    async generateEmbedding(text: string): Promise<number[]> {
+        if (this.cache) {
+            const cachedEmbedding = await this.cache.getEmbedding(text);
+            if (cachedEmbedding) {
+                return cachedEmbedding;
+            }
+        }
+
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+        };
+
+        if (this.apiKey) {
+            headers.Authorization = `Bearer ${this.apiKey}`;
+        }
+
+        const response = await fetch(`${this.baseUrl}/embeddings`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                model: this.modelName,
+                input: text,
+            }),
+        });
+
+        const payloadText = await response.text();
+        if (!response.ok) {
+            throw new Error(`OpenAI-compatible embeddings request failed (${response.status}): ${payloadText}`);
+        }
+
+        let payload: any;
+        try {
+            payload = JSON.parse(payloadText);
+        } catch {
+            throw new Error(`OpenAI-compatible embeddings response was not JSON: ${payloadText}`);
+        }
+
+        if (payload?.error) {
+            const message = typeof payload.error === 'string' ? payload.error : payload.error?.message;
+            throw new Error(`OpenAI-compatible embeddings response error: ${message ?? payloadText}`);
+        }
+
+        const embedding = payload?.data?.[0]?.embedding;
+        if (!Array.isArray(embedding)) {
+            throw new Error('OpenAI-compatible embeddings response missing embedding data.');
+        }
+
+        const vector = embedding.map((value: unknown) => Number(value));
+        if (vector.some(value => Number.isNaN(value))) {
+            throw new Error('OpenAI-compatible embeddings response contains non-numeric values.');
+        }
+
+        this.dimensions = vector.length;
+
+        if (this.cache) {
+            await this.cache.setEmbedding(text, vector);
+        }
+
+        return vector;
+    }
+
+    isAvailable(): boolean {
+        return true;
+    }
+
+    getModelName(): string {
+        return this.modelName;
+    }
+
+    getDimensions(): number {
+        return this.dimensions ?? 0;
+    }
+
+    getCacheStats(): any {
+        return this.cache ? this.cache.getCacheStats() : null;
+    }
+}
+
+/**
  * Simple embedding provider that uses basic text hashing
  * Used as fallback when transformers.js is not available
  */
@@ -210,6 +363,12 @@ export class SimpleEmbeddingProvider implements EmbeddingProvider {
  * Factory function to create the best available embedding provider
  */
 export async function createEmbeddingProvider(modelName?: string): Promise<EmbeddingProvider> {
+    const providerType = resolveEmbeddingProviderType();
+    if (providerType === 'openai') {
+        const config = resolveOpenAiEmbeddingConfig(modelName);
+        return new OpenAiEmbeddingProvider(config.baseUrl, config.model, config.apiKey);
+    }
+
     const defaultModel = 'Xenova/all-MiniLM-L6-v2';
     const fallbackModel = 'Xenova/paraphrase-multilingual-mpnet-base-v2';
 
@@ -268,6 +427,12 @@ export async function createEmbeddingProviderWithModel(modelName: string): Promi
  * Create embedding provider with lazy initialization (no immediate test)
  */
 export function createLazyEmbeddingProvider(modelName?: string): EmbeddingProvider {
+    const providerType = resolveEmbeddingProviderType();
+    if (providerType === 'openai') {
+        const config = resolveOpenAiEmbeddingConfig(modelName);
+        return new OpenAiEmbeddingProvider(config.baseUrl, config.model, config.apiKey);
+    }
+
     const defaultModel = 'Xenova/all-MiniLM-L6-v2'; // Use smaller model as default for faster startup
     return new TransformersEmbeddingProvider(modelName || defaultModel);
 }

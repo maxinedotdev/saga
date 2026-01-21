@@ -5,7 +5,8 @@
   "main": "dist/server.js",
   "type": "module",
   "bin": {
-    "mcp-documentation-server": "dist/server.js"
+    "mcp-documentation-server": "dist/server.js",
+    "mcp-documentation-embeddings": "dist/embedding-cli.js"
   },
   "homepage": "https://github.com/andrea9293/mcp-documentation-server#readme",
   "repository": {
@@ -21,6 +22,7 @@
     "dev": "fastmcp dev src/server.ts",
     "dev:direct": "npx tsx src/server.ts",
     "dev:build": "npm run build && node dist/server.js",
+    "embeddings:check": "node dist/embedding-cli.js",
     "inspect": "npx fastmcp inspect src/server.ts",
     "test": "echo \"Warning: no test specified\" && exit 0",
     "prepare": "npm run build"
@@ -38,16 +40,9 @@
     "dist"
   ],
   "devDependencies": {
-    "@semantic-release/changelog": "^6.0.3",
-    "@semantic-release/commit-analyzer": "^13.0.1",
-    "@semantic-release/git": "^10.0.1",
-    "@semantic-release/github": "^11.0.3",
-    "@semantic-release/npm": "^12.0.1",
-    "@semantic-release/release-notes-generator": "^14.0.3",
     "@tsconfig/node22": "^22.0.1",
     "@types/fs-extra": "^11.0.4",
     "@types/glob": "^8.1.0",
-    "semantic-release": "^24.2.5",
     "shx": "^0.3.4",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3"

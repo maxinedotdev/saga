@@ -18,8 +18,8 @@ let documentManager: DocumentManager;
 
 async function initializeDocumentManager() {
     if (!documentManager) {
-        // Get embedding model from environment variable
-        const embeddingModel = process.env.MCP_EMBEDDING_MODEL || 'Xenova/all-MiniLM-L6-v2';
+        // Get embedding model from environment variable (provider handles defaults)
+        const embeddingModel = process.env.MCP_EMBEDDING_MODEL;
         const embeddingProvider = createLazyEmbeddingProvider(embeddingModel);
           // Constructor will use default paths automatically
         documentManager = new DocumentManager(embeddingProvider);

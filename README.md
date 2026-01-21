@@ -56,12 +56,15 @@ Example configuration for an MCP client (e.g., Claude Desktop):
       ],
       "env": {
             "MCP_BASE_DIR": "/path/to/workspace",  // Optional, custom data directory (default: ~/.mcp-documentation-server)
+            "MCP_EMBEDDING_PROVIDER": "transformers",  // Optional, "transformers" or "openai"
+            "MCP_EMBEDDING_MODEL": "Xenova/all-MiniLM-L6-v2",
+            "MCP_EMBEDDING_BASE_URL": "http://127.0.0.1:1234",  // Optional, OpenAI-compatible embeddings base URL
+            "MCP_EMBEDDING_API_KEY": "your-api-key-here",  // Optional, required for remote embeddings
             "MCP_AI_PROVIDER": "gemini",  // Optional, "gemini" or "openai"
             "GEMINI_API_KEY": "your-api-key-here",  // Optional, enables Gemini AI search
             "MCP_AI_BASE_URL": "http://127.0.0.1:1234",  // Optional, OpenAI-compatible base URL (LM Studio / synthetic.new)
             "MCP_AI_MODEL": "ministral-3-8b-instruct-2512",  // Optional, defaults based on base URL
             "MCP_AI_API_KEY": "your-api-key-here",  // Optional, required for synthetic.new
-            "MCP_EMBEDDING_MODEL": "Xenova/all-MiniLM-L6-v2",
       }
     }
   }
@@ -99,7 +102,10 @@ The server exposes several tools (validated with Zod schemas) for document lifec
 Configure behavior via environment variables. Important options:
 
 - `MCP_BASE_DIR` — base directory for data storage (default: `~/.mcp-documentation-server`). Set this to use independent workspaces.
-- `MCP_EMBEDDING_MODEL` — embedding model name (default: `Xenova/all-MiniLM-L6-v2`). Changing the model requires re-adding documents.
+- `MCP_EMBEDDING_PROVIDER` — embedding provider selection: `transformers` or `openai` (optional; defaults to `transformers`).
+- `MCP_EMBEDDING_MODEL` — embedding model name. Defaults to `Xenova/all-MiniLM-L6-v2` for Transformers.js or `text-embedding-nomic-embed-text-v1.5` for LM Studio.
+- `MCP_EMBEDDING_BASE_URL` — OpenAI-compatible embeddings base URL (required for `openai`, e.g. `http://127.0.0.1:1234`).
+- `MCP_EMBEDDING_API_KEY` — OpenAI-compatible embeddings API key (required for remote embeddings).
 - `MCP_AI_PROVIDER` — AI provider selection: `gemini` or `openai` (optional; defaults based on configured keys).
 - `MCP_AI_BASE_URL` — OpenAI-compatible base URL (required for `openai`, e.g. `http://127.0.0.1:1234` or `https://api.synthetic.new/openai/v1`).
 - `MCP_AI_MODEL` — OpenAI-compatible model name (optional; defaults based on base URL).
@@ -127,11 +133,22 @@ Configure behavior via environment variables. Important options:
 - Use `list_documents` to obtain a document ID.
 - Call `search_documents_with_ai` with a query and verify JSON output contains `search_results` and `relevant_sections`.
 
+## Embedding provider validation
+
+- Set `MCP_EMBEDDING_PROVIDER=openai` and `MCP_EMBEDDING_BASE_URL=http://127.0.0.1:1234`.
+- Add a document and run `search_documents` to confirm embeddings are generated via LM Studio.
+- Re-ingest documents when switching embedding provider or model.
+- Or run the CLI check: `node dist/embedding-cli.js --provider openai --base-url http://127.0.0.1:1234 --model text-embedding-nomic-embed-text-v1.5`.
+
 Example `.env` (defaults applied when variables are not set):
 
 ```env
 MCP_BASE_DIR=/path/to/workspace   # Base directory for data storage (default: ~/.mcp-documentation-server)
 MCP_INDEXING_ENABLED=true          # Enable O(1) indexing (default: true)
+MCP_EMBEDDING_PROVIDER=transformers  # "transformers" or "openai" (optional)
+MCP_EMBEDDING_MODEL=Xenova/all-MiniLM-L6-v2  # Embedding model name
+MCP_EMBEDDING_BASE_URL=http://127.0.0.1:1234  # OpenAI-compatible embeddings base URL (optional)
+MCP_EMBEDDING_API_KEY=your-api-key-here  # OpenAI-compatible embeddings API key (required for remote)
 MCP_AI_PROVIDER=gemini             # "gemini" or "openai" (optional)
 MCP_AI_BASE_URL=http://127.0.0.1:1234  # OpenAI-compatible base URL (optional)
 MCP_AI_MODEL=ministral-3-8b-instruct-2512  # OpenAI-compatible model (optional)
@@ -260,14 +277,17 @@ Fetch context window:
 
 ### Embedding Models
 
-Set via `MCP_EMBEDDING_MODEL` environment variable:
+Embedding model selection depends on the provider:
 
-- **`Xenova/all-MiniLM-L6-v2`** (default) - Fast, good quality (384 dimensions)
-- **`Xenova/paraphrase-multilingual-mpnet-base-v2`** (recommended) - Best quality, multilingual (768 dimensions)
+- **Transformers.js (default)**: set `MCP_EMBEDDING_PROVIDER=transformers` and `MCP_EMBEDDING_MODEL`.
+  - **`Xenova/all-MiniLM-L6-v2`** (default) - Fast, good quality (384 dimensions)
+  - **`Xenova/paraphrase-multilingual-mpnet-base-v2`** (recommended) - Best quality, multilingual (768 dimensions)
+- **OpenAI-compatible (LM Studio / remote)**: set `MCP_EMBEDDING_PROVIDER=openai` and `MCP_EMBEDDING_BASE_URL`.
+  - Default model for LM Studio: `text-embedding-nomic-embed-text-v1.5`
 
-The system automatically manages the correct embedding dimension for each model. Embedding providers expose their dimension via `getDimensions()`.
+The system derives embedding dimensions from the selected provider (Transformers.js model metadata or OpenAI-compatible response length).
 
-⚠️ **Important**: Changing models requires re-adding all documents as embeddings are incompatible.
+⚠️ **Important**: Changing embedding provider or model requires re-adding all documents as embeddings are incompatible.
 
 
 ## Development
