@@ -11,10 +11,10 @@ A TypeScript-based [Model Context Protocol (MCP)](https://modelcontextprotocol.i
 
 ## 🚀 AI-Powered Document Intelligence
 
-**NEW!** Enhanced with Google Gemini AI for advanced document analysis and contextual understanding. Ask complex questions and get intelligent summaries, explanations, and insights from your documents. To get API Key go to [Google AI Studio](https://aistudio.google.com/app/apikey)
+**NEW!** Enhanced with configurable AI providers for advanced document analysis and contextual understanding. Use Gemini (cloud) or any OpenAI-compatible endpoint such as LM Studio (local) or synthetic.new (remote).
 
 ### Key AI Features:
-- **Intelligent Document Analysis**: Gemini AI understands context, relationships, and concepts
+- **Intelligent Document Analysis**: AI providers understand context, relationships, and concepts
 - **Natural Language Queries**: Ask a question, not just keywords
 - **Smart Summarization**: Get comprehensive overviews and explanations
 - **Contextual Insights**: Understand how different parts of your documents relate
@@ -24,7 +24,7 @@ A TypeScript-based [Model Context Protocol (MCP)](https://modelcontextprotocol.i
 ## Core capabilities
 
 ### 🔍 Search & Intelligence
-- **AI-Powered Search** 🤖: Advanced document analysis with Gemini AI for contextual understanding and intelligent insights
+- **AI-Powered Search** 🤖: Advanced document analysis with the configured AI provider for contextual understanding and intelligent insights
 - **Traditional Semantic Search**: Chunk-based search using embeddings plus in-memory keyword index
 - **Context Window Retrieval**: Gather surrounding chunks for richer LLM answers
 
@@ -56,7 +56,11 @@ Example configuration for an MCP client (e.g., Claude Desktop):
       ],
       "env": {
             "MCP_BASE_DIR": "/path/to/workspace",  // Optional, custom data directory (default: ~/.mcp-documentation-server)
-            "GEMINI_API_KEY": "your-api-key-here",  // Optional, enables AI-powered search
+            "MCP_AI_PROVIDER": "gemini",  // Optional, "gemini" or "openai"
+            "GEMINI_API_KEY": "your-api-key-here",  // Optional, enables Gemini AI search
+            "MCP_AI_BASE_URL": "http://127.0.0.1:1234",  // Optional, OpenAI-compatible base URL (LM Studio / synthetic.new)
+            "MCP_AI_MODEL": "ministral-3-8b-instruct-2512",  // Optional, defaults based on base URL
+            "MCP_AI_API_KEY": "your-api-key-here",  // Optional, required for synthetic.new
             "MCP_EMBEDDING_MODEL": "Xenova/all-MiniLM-L6-v2",
       }
     }
@@ -86,7 +90,7 @@ The server exposes several tools (validated with Zod schemas) for document lifec
 - `list_uploads_files` — Lists files in uploads folder
 
 ### 🔍 Search & Intelligence
-- `search_documents_with_ai` — **🤖 AI-powered search using Gemini** for advanced document analysis (requires `GEMINI_API_KEY`)
+- `search_documents_with_ai` — **🤖 AI-powered search using the configured provider** for advanced document analysis (requires provider configuration)
 - `search_documents` — Semantic search within a document (returns chunk hits and LLM hint)
 - `get_context_window` — Return a window of chunks around a target chunk index
 
@@ -96,7 +100,12 @@ Configure behavior via environment variables. Important options:
 
 - `MCP_BASE_DIR` — base directory for data storage (default: `~/.mcp-documentation-server`). Set this to use independent workspaces.
 - `MCP_EMBEDDING_MODEL` — embedding model name (default: `Xenova/all-MiniLM-L6-v2`). Changing the model requires re-adding documents.
-- `GEMINI_API_KEY` — **Google Gemini API key** for AI-powered search features (optional, enables `search_documents_with_ai`).
+- `MCP_AI_PROVIDER` — AI provider selection: `gemini` or `openai` (optional; defaults based on configured keys).
+- `MCP_AI_BASE_URL` — OpenAI-compatible base URL (required for `openai`, e.g. `http://127.0.0.1:1234` or `https://api.synthetic.new/openai/v1`).
+- `MCP_AI_MODEL` — OpenAI-compatible model name (optional; defaults based on base URL).
+- `MCP_AI_API_KEY` — OpenAI-compatible API key (required for synthetic.new, optional for local LM Studio).
+- `MCP_AI_MAX_CONTEXT_CHUNKS` — Max chunks included in AI prompt for OpenAI-compatible providers (default: `6`).
+- `GEMINI_API_KEY` — **Google Gemini API key** for AI-powered search features (optional, enables `search_documents_with_ai` when provider is Gemini).
 - `MCP_INDEXING_ENABLED` — enable/disable the `DocumentIndex` (true/false). Default: `true`.
 - `MCP_CACHE_SIZE` — LRU embedding cache size (integer). Default: `1000`.
 - `MCP_PARALLEL_ENABLED` — enable parallel chunking (true/false). Default: `true`.
@@ -105,11 +114,29 @@ Configure behavior via environment variables. Important options:
 - `MCP_STREAM_CHUNK_SIZE` — streaming buffer size in bytes. Default: `65536` (64KB).
 - `MCP_STREAM_FILE_SIZE_LIMIT` — threshold (bytes) to switch to streaming path. Default: `10485760` (10MB).
 
+## AI provider setup
+
+- **Gemini** (cloud): set `MCP_AI_PROVIDER=gemini` and `GEMINI_API_KEY` from [Google AI Studio](https://aistudio.google.com/app/apikey).
+- **LM Studio** (local): set `MCP_AI_PROVIDER=openai` and `MCP_AI_BASE_URL=http://127.0.0.1:1234`. Default model is `ministral-3-8b-instruct-2512` unless `MCP_AI_MODEL` overrides it.
+- **synthetic.new** (remote): set `MCP_AI_PROVIDER=openai`, `MCP_AI_BASE_URL=https://api.synthetic.new/openai/v1`, and `MCP_AI_API_KEY`. Default model is `glm-4.7` unless `MCP_AI_MODEL` overrides it.
+- If `MCP_AI_PROVIDER` is unset, the server falls back to Gemini when `GEMINI_API_KEY` is set, otherwise it uses OpenAI-compatible settings when `MCP_AI_BASE_URL` is set.
+
+## AI provider validation
+
+- Start the server with the provider env vars configured.
+- Use `list_documents` to obtain a document ID.
+- Call `search_documents_with_ai` with a query and verify JSON output contains `search_results` and `relevant_sections`.
+
 Example `.env` (defaults applied when variables are not set):
 
 ```env
 MCP_BASE_DIR=/path/to/workspace   # Base directory for data storage (default: ~/.mcp-documentation-server)
 MCP_INDEXING_ENABLED=true          # Enable O(1) indexing (default: true)
+MCP_AI_PROVIDER=gemini             # "gemini" or "openai" (optional)
+MCP_AI_BASE_URL=http://127.0.0.1:1234  # OpenAI-compatible base URL (optional)
+MCP_AI_MODEL=ministral-3-8b-instruct-2512  # OpenAI-compatible model (optional)
+MCP_AI_API_KEY=your-api-key-here   # OpenAI-compatible API key (required for synthetic.new)
+MCP_AI_MAX_CONTEXT_CHUNKS=6        # Max chunks in AI prompt (OpenAI-compatible)
 GEMINI_API_KEY=your-api-key-here   # Google Gemini API key (optional)
 MCP_CACHE_SIZE=1000                # LRU cache size (default: 1000)
 MCP_PARALLEL_ENABLED=true          # Enable parallel processing (default: true)
@@ -162,7 +189,7 @@ Search a document:
 
 ### 🤖 AI-Powered Search Examples
 
-**Advanced Analysis** (requires `GEMINI_API_KEY`):
+**Advanced Analysis** (requires AI provider configuration):
 
 ```json
 {
@@ -223,7 +250,7 @@ Fetch context window:
 
 ### Performance Benefits:
 - **Smart Caching**: File mapping prevents re-uploading the same content
-- **Efficient Processing**: Only relevant sections are analyzed by Gemini
+- **Efficient Processing**: Only relevant sections are analyzed by the AI provider
 - **Contextual Results**: More accurate and comprehensive answers
 - **Natural Interaction**: Ask questions in plain English
 
