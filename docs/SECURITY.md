@@ -45,9 +45,9 @@ We take security seriously and appreciate responsible disclosure of security vul
 
 ### How to Report
 
-1. **Email**: Send details to [andreabravaccino@gmail.com] (replace with your actual email)
-2. **GitHub Issues**: For non-sensitive issues, you can use our [issue tracker](https://github.com/andrea9293/mcp-documentation-server/issues)
-3. **Security Advisories**: For sensitive vulnerabilities, use GitHub's [private vulnerability reporting](https://github.com/andrea9293/mcp-documentation-server/security/advisories)
+1. **Email**: Send details to [maxine@mcp.dev] (replace with your actual email)
+2. **GitHub Issues**: For non-sensitive issues, you can use our [issue tracker](https://github.com/maxinedotdev/mcp-documentation-server/issues)
+3. **Security Advisories**: For sensitive vulnerabilities, use GitHub's [private vulnerability reporting](https://github.com/maxinedotdev/mcp-documentation-server/security/advisories)
 
 ### What to Include
 
@@ -111,9 +111,9 @@ This security policy covers:
 ## Contact
 
 For security-related questions or concerns:
-- **General Security**: [andreabravaccino@gmail.com]
-- **Project Maintainer**: [@andrea9293](https://github.com/andrea9293)
-- **Repository**: [mcp-documentation-server](https://github.com/andrea9293/mcp-documentation-server)
+- **General Security**: [maxine@mcp.dev]
+- **Project Maintainer**: [@maxinedotdev](https://github.com/maxinedotdev)
+- **Repository**: [mcp-documentation-server](https://github.com/maxinedotdev/mcp-documentation-server)
 
 ---
 
