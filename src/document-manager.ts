@@ -3,7 +3,7 @@ import { writeFile, readFile, copyFile, readdir, unlink } from "fs/promises";
 import * as path from "path";
 import { glob } from "glob";
 import { createHash } from 'crypto';
-import { Document, DocumentChunk, SearchResult, EmbeddingProvider } from './types.js';
+import { Document, DocumentChunk, DocumentSummary, SearchResult, EmbeddingProvider } from './types.js';
 import { SimpleEmbeddingProvider } from './embedding-provider.js';
 import { IntelligentChunker } from './intelligent-chunker.js';
 import { extractText } from 'unpdf';
@@ -301,6 +301,69 @@ export class DocumentManager {
         }
 
         return documents;
+    }
+
+    private async listDocumentIds(): Promise<string[]> {
+        if (this.useIndexing && this.documentIndex) {
+            await this.ensureIndexInitialized();
+            const ids = this.documentIndex.getAllDocumentIds();
+            return ids.sort();
+        }
+
+        const globPattern = this.dataDir.replace(/\\/g, '/') + "/*.json";
+        const files = await glob(globPattern);
+        return files
+            .map(file => path.basename(file, ".json"))
+            .filter(id => id !== "document-index")
+            .sort();
+    }
+
+    async listDocumentSummaries(options: {
+        offset?: number;
+        limit?: number;
+        includeMetadata?: boolean;
+        includePreview?: boolean;
+        previewLength?: number;
+    } = {}): Promise<{ total: number; documents: DocumentSummary[] }> {
+        const offset = Math.max(0, options.offset ?? 0);
+        const limit = Math.max(0, options.limit ?? 50);
+        const includeMetadata = options.includeMetadata ?? false;
+        const includePreview = options.includePreview ?? false;
+        const previewLength = Math.max(0, options.previewLength ?? 200);
+
+        const documentIds = await this.listDocumentIds();
+        const total = documentIds.length;
+        const slice = documentIds.slice(offset, offset + limit);
+        const documents: DocumentSummary[] = [];
+
+        for (const id of slice) {
+            const document = await this.getDocument(id);
+            if (!document) {
+                continue;
+            }
+
+            const summary: DocumentSummary = {
+                id: document.id,
+                title: typeof document.title === "string" ? document.title : "",
+                created_at: document.created_at,
+                updated_at: document.updated_at,
+                content_length: typeof document.content === "string" ? document.content.length : 0,
+                chunks_count: Array.isArray(document.chunks) ? document.chunks.length : 0,
+            };
+
+            if (includeMetadata) {
+                summary.metadata = document.metadata;
+            }
+
+            if (includePreview && previewLength > 0 && typeof document.content === "string") {
+                const preview = document.content.substring(0, previewLength);
+                summary.content_preview = document.content.length > previewLength ? `${preview}...` : preview;
+            }
+
+            documents.push(summary);
+        }
+
+        return { total, documents };
     }
 
     async searchDocuments(documentId: string, query: string, limit = 10): Promise<SearchResult[]> {

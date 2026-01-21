@@ -154,23 +154,37 @@ server.addTool({
 // List documents tool
 server.addTool({
     name: "list_documents",
-    description: "List all documents in the knowledge base",
-    parameters: z.object({}), execute: async () => {
+    description: "List documents in the knowledge base with pagination and optional metadata/preview",
+    parameters: z.object({
+        offset: z.number().int().min(0).default(0).describe("Number of documents to skip for pagination"),
+        limit: z.number().int().min(1).max(200).default(50).describe("Maximum number of documents to return (default 50, max 200)"),
+        include_metadata: z.boolean().default(false).describe("Include full metadata objects (default false)"),
+        include_preview: z.boolean().default(false).describe("Include a content preview snippet (default false)"),
+        preview_length: z.number().int().min(0).max(1000).default(200).describe("Preview length if include_preview is true (default 200, max 1000)"),
+    }), execute: async (args) => {
         try {
             const manager = await initializeDocumentManager();
-            const documents = await manager.getAllDocuments();
+            const { total, documents } = await manager.listDocumentSummaries({
+                offset: args.offset,
+                limit: args.limit,
+                includeMetadata: args.include_metadata,
+                includePreview: args.include_preview,
+                previewLength: args.preview_length,
+            });
 
-            const documentList = documents.map(doc => ({
-                id: doc.id,
-                title: doc.title,
-                created_at: doc.created_at,
-                updated_at: doc.updated_at,
-                metadata: doc.metadata,
-                content_preview: doc.content.substring(0, 700) + "...",
-                chunks_count: doc.chunks.length,
-            }));
+            const returned = documents.length;
+            const hasMore = args.offset + returned < total;
+            const response = {
+                total_documents: total,
+                offset: args.offset,
+                limit: args.limit,
+                returned,
+                has_more: hasMore,
+                next_offset: hasMore ? args.offset + returned : null,
+                documents,
+            };
 
-            return JSON.stringify(documentList, null, 2);
+            return JSON.stringify(response, null, 2);
         } catch (error) {
             throw new Error(`Failed to list documents: ${error instanceof Error ? error.message : String(error)}`);
         }
