@@ -10,6 +10,8 @@ import { extractText } from 'unpdf';
 import { getDefaultDataDir } from './utils.js';
 import { DocumentIndex } from './indexing/document-index.js';
 import { GeminiFileMappingService } from './gemini-file-mapping-service.js';
+import type { VectorDatabase } from './vector-db/lance-db.js';
+import { createVectorDatabase, migrateFromJson } from './vector-db/index.js';
 
 /**
  * Document manager that handles document operations with chunking, indexing, and embeddings
@@ -20,11 +22,13 @@ export class DocumentManager {
     private embeddingProvider: EmbeddingProvider;
     private intelligentChunker: IntelligentChunker;
     private documentIndex: DocumentIndex | null = null;
+    private vectorDatabase: VectorDatabase | null = null;
     private useIndexing: boolean;
+    private useVectorDb: boolean;
     private useParallelProcessing: boolean;
     private useStreaming: boolean;
     
-    constructor(embeddingProvider?: EmbeddingProvider) {
+    constructor(embeddingProvider?: EmbeddingProvider, vectorDatabase?: VectorDatabase) {
         // Always use default paths
         const baseDir = getDefaultDataDir();
         this.dataDir = path.join(baseDir, 'data');
@@ -35,6 +39,7 @@ export class DocumentManager {
         
         // Feature flags with fallback
         this.useIndexing = process.env.MCP_INDEXING_ENABLED !== 'false';
+        this.useVectorDb = process.env.MCP_VECTOR_DB !== 'inmemory';
         this.useParallelProcessing = process.env.MCP_PARALLEL_ENABLED !== 'false';
         this.useStreaming = process.env.MCP_STREAMING_ENABLED !== 'false';
         
@@ -53,6 +58,69 @@ export class DocumentManager {
                 console.warn('[DocumentManager] Indexing disabled due to error:', error);
                 this.useIndexing = false;
             }
+        }
+        
+        // Initialize vector database with error handling
+        if (this.useVectorDb) {
+            try {
+                this.vectorDatabase = vectorDatabase || this.createVectorDatabase();
+                this.initializeVectorDatabase();
+                console.error('[DocumentManager] Vector database initialized');
+            } catch (error) {
+                console.warn('[DocumentManager] Vector database disabled due to error:', error);
+                this.useVectorDb = false;
+                this.vectorDatabase = null;
+            }
+        }
+    }
+
+    /**
+     * Create and initialize vector database instance
+     */
+    private createVectorDatabase(): VectorDatabase {
+        const dbType = process.env.MCP_VECTOR_DB || 'lance';
+        const dbPath = process.env.MCP_LANCE_DB_PATH || path.join(getDefaultDataDir(), 'lancedb');
+        return createVectorDatabase(dbType, dbPath);
+    }
+
+    /**
+     * Initialize vector database with automatic migration
+     */
+    private async initializeVectorDatabase(): Promise<void> {
+        if (!this.vectorDatabase) return;
+
+        try {
+            await this.vectorDatabase.initialize();
+            
+            // Attempt migration if needed
+            // Check if we should migrate (basic check - can be enhanced)
+            const dataDir = this.dataDir;
+            const { existsSync } = await import('fs');
+            
+            // Simple heuristic: if we have JSON files and vector DB is new, migrate
+            if (existsSync(dataDir)) {
+                try {
+                    const { readdir } = await import('fs/promises');
+                    const files = await readdir(dataDir);
+                    const jsonFiles = files.filter(f => f.endsWith('.json'));
+                    
+                    if (jsonFiles.length > 0) {
+                        console.error(`[DocumentManager] Found ${jsonFiles.length} JSON documents, attempting migration...`);
+                        const result = await migrateFromJson(this.vectorDatabase, getDefaultDataDir());
+                        if (result.success) {
+                            console.error(`[DocumentManager] Migration completed: ${result.documentsMigrated} documents, ${result.chunksMigrated} chunks`);
+                        } else {
+                            console.warn(`[DocumentManager] Migration encountered errors: ${result.errors.join(', ')}`);
+                        }
+                    }
+                } catch (migrationError) {
+                    console.warn('[DocumentManager] Migration attempt failed:', migrationError);
+                    // Continue without migration - data might already be migrated or issues can be handled later
+                }
+            }
+        } catch (error) {
+            console.error('[DocumentManager] Failed to initialize vector database:', error);
+            throw error;
         }
     }
 
@@ -144,6 +212,20 @@ export class DocumentManager {
             this.documentIndex.addDocument(id, filePath, content, chunks);
         }
 
+        // Add chunks to vector database if enabled
+        if (this.useVectorDb && this.vectorDatabase) {
+            try {
+                // Filter chunks that have embeddings
+                const chunksWithEmbeddings = chunks.filter(chunk => chunk.embeddings && chunk.embeddings.length > 0);
+                if (chunksWithEmbeddings.length > 0) {
+                    await this.vectorDatabase.addChunks(chunksWithEmbeddings);
+                }
+            } catch (error) {
+                console.warn('[DocumentManager] Failed to add chunks to vector database:', error);
+                // Continue without vector DB - non-critical error
+            }
+        }
+
         return document;
     }
 
@@ -222,8 +304,24 @@ export class DocumentManager {
 
     async searchDocuments(documentId: string, query: string, limit = 10): Promise<SearchResult[]> {
         const queryEmbedding = await this.embeddingProvider.generateEmbedding(query);
-        const document = await this.getDocument(documentId);
 
+        // Use vector database if available
+        if (this.useVectorDb && this.vectorDatabase) {
+            try {
+                const results = await this.vectorDatabase.search(
+                    queryEmbedding,
+                    limit,
+                    `document_id = '${documentId}'`
+                );
+                return results;
+            } catch (error) {
+                console.warn('[DocumentManager] Vector database search failed, falling back to in-memory:', error);
+                // Fall through to in-memory search
+            }
+        }
+
+        // Fallback to in-memory search
+        const document = await this.getDocument(documentId);
         if (!document) {
             return [];
         }
@@ -502,6 +600,16 @@ export class DocumentManager {
                 this.documentIndex.removeDocument(documentId);
             }
 
+            // Remove from vector database if enabled
+            if (this.useVectorDb && this.vectorDatabase) {
+                try {
+                    await this.vectorDatabase.removeChunks(documentId);
+                } catch (error) {
+                    console.warn(`[DocumentManager] Failed to remove chunks from vector database for ${documentId}:`, error);
+                    // Continue - non-critical error
+                }
+            }
+
             // Remove Gemini file mapping if exists
             await GeminiFileMappingService.removeMapping(documentId);
 
@@ -538,6 +646,7 @@ export class DocumentManager {
         const stats: any = {
             features: {
                 indexing: this.useIndexing,
+                vectorDb: this.useVectorDb,
                 parallelProcessing: this.useParallelProcessing,
                 streaming: this.useStreaming
             }
@@ -545,6 +654,13 @@ export class DocumentManager {
 
         if (this.useIndexing && this.documentIndex) {
             stats.indexing = this.documentIndex.getStats();
+        }
+
+        if (this.useVectorDb && this.vectorDatabase) {
+            stats.vectorDatabase = {
+                type: process.env.MCP_VECTOR_DB || 'lance',
+                path: process.env.MCP_LANCE_DB_PATH || 'default'
+            };
         }
 
         if (this.embeddingProvider && typeof this.embeddingProvider.getCacheStats === 'function') {

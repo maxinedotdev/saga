@@ -171,3 +171,25 @@ export function serializeDate(date: Date): string {
 export function parseDate(dateString: string): Date {
     return new Date(dateString);
 }
+
+/**
+ * Get a logger for the specified prefix
+ * Uses console.error for logging (MCP standard)
+ */
+export function getLogger(prefix: string): {
+    debug: (...args: any[]) => void;
+    info: (...args: any[]) => void;
+    warn: (...args: any[]) => void;
+    error: (...args: any[]) => void;
+} {
+    const log = (level: string, ...args: any[]) => {
+        console.error(`[${prefix}] [${level.toUpperCase()}]`, ...args);
+    };
+
+    return {
+        debug: (...args: any[]) => log('debug', ...args),
+        info: (...args: any[]) => log('info', ...args),
+        warn: (...args: any[]) => log('warn', ...args),
+        error: (...args: any[]) => log('error', ...args)
+    };
+}

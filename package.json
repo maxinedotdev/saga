@@ -25,6 +25,10 @@
     "embeddings:check": "node dist/embedding-cli.js",
     "inspect": "npx fastmcp inspect src/server.ts",
     "test": "echo \"Warning: no test specified\" && exit 0",
+    "test:unit": "tsx src/vector-db/__tests__/vector-db.test.ts",
+    "test:integration": "tsx src/__tests__/integration.test.ts",
+    "test:benchmark": "tsx src/__tests__/benchmark.test.ts",
+    "test:all": "npm run test:unit && npm run test:integration",
     "prepare": "npm run build"
   },
   "keywords": [
@@ -49,6 +53,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.19.0",
+    "@lancedb/lancedb": "^0.23.0",
     "@modelcontextprotocol/sdk": "^1.12.3",
     "@types/node": "^24.0.1",
     "@xenova/transformers": "^2.17.2",
