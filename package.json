@@ -1,20 +1,20 @@
 {
-  "name": "@andrea9293/mcp-documentation-server",
+  "name": "@maxinedotdev/mcp-documentation-server",
   "version": "1.12.0",
-  "description": "A TypeScript MCP server for document management and semantic search with embeddings",
+  "description": "A TypeScript MCP server for document management and semantic search with embeddings, featuring web crawling, multiple AI providers, and intelligent chunking",
   "main": "dist/server.js",
   "type": "module",
   "bin": {
     "mcp-documentation-server": "dist/server.js",
     "mcp-documentation-embeddings": "dist/embedding-cli.js"
   },
-  "homepage": "https://github.com/andrea9293/mcp-documentation-server#readme",
+  "homepage": "https://github.com/maxinedotdev/mcp-documentation-server#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/andrea9293/mcp-documentation-server.git"
+    "url": "git+https://github.com/maxinedotdev/mcp-documentation-server.git"
   },
   "bugs": {
-    "url": "https://github.com/andrea9293/mcp-documentation-server/issues"
+    "url": "https://github.com/maxinedotdev/mcp-documentation-server/issues"
   },
   "scripts": {
     "build": "tsc && shx chmod +x dist/*.js",
@@ -38,7 +38,7 @@
     "search",
     "embeddings"
   ],
-  "author": "cvntress",
+  "author": "maxinedotdev",
   "license": "MIT",
   "files": [
     "dist"

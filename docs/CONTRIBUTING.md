@@ -51,7 +51,7 @@ git clone https://github.com/YOUR_USERNAME/mcp-documentation-server.git
 cd mcp-documentation-server
 
 # Add upstream remote
-git remote add upstream https://github.com/andrea9293/mcp-documentation-server.git
+git remote add upstream https://github.com/maxinedotdev/mcp-documentation-server.git
 ```
 
 ### 2. Install Dependencies
@@ -354,9 +354,9 @@ docs/
 ## Getting Help
 
 - 📖 **Documentation**: Check the [README](README.md) first
-- 🐛 **Issues**: [GitHub Issues](https://github.com/andrea9293/mcp-documentation-server/issues)
-- 💬 **Discussions**: [GitHub Discussions](https://github.com/andrea9293/mcp-documentation-server/discussions)
-- 📧 **Email**: [your.email@example.com] for sensitive questions
+- 🐛 **Issues**: [GitHub Issues](https://github.com/maxinedotdev/mcp-documentation-server/issues)
+- 💬 **Discussions**: [GitHub Discussions](https://github.com/maxinedotdev/mcp-documentation-server/discussions)
+- 📧 **Email**: [maxine@mcp.dev] for sensitive questions
 
 ## Recognition
 

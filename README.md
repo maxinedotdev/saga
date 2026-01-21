@@ -1,10 +1,3 @@
-[![Verified on MseeP](https://mseep.ai/badge.svg)](https://mseep.ai/app/72109e6a-27fa-430d-9034-571e7065fe05) [![npm version](https://badge.fury.io/js/@andrea9293%2Fmcp-documentation-server.svg)](https://badge.fury.io/js/@andrea9293%2Fmcp-documentation-server) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/andrea9293/mcp-documentation-server) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-[![Donate with PayPal](https://i.ibb.co/SX4qQBfm/paypal-donate-button171.png)](https://www.paypal.com/donate/?hosted_button_id=HXATGECV8HUJN) 
-
-[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/andrea.bravaccino)
-
-
 # MCP Documentation Server
 
 A TypeScript-based [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that provides local-first document management and semantic search using embeddings. The server exposes a collection of MCP tools and is optimized for performance with on-disk persistence, an in-memory index, caching, and optional LanceDB vector storage for scalable search.
@@ -54,7 +47,7 @@ Example configuration for an MCP client (e.g., Claude Desktop):
       "command": "npx",
       "args": [
         "-y",
-        "@andrea9293/mcp-documentation-server"
+        "@maxinedotdev/mcp-documentation-server"
       ],
       "env": {
             "MCP_BASE_DIR": "/path/to/workspace",  // Optional, custom data directory (default: ~/.mcp-documentation-server)
@@ -87,7 +80,7 @@ The server exposes several tools (validated with Zod schemas) for document lifec
 
 ### 📄 Document Management
 - `add_document` — Add a document (title, content, metadata)
-- `list_documents` — List stored documents and metadata
+- `list_documents` — List documents with pagination; metadata/preview are optional
 - `get_document` — Retrieve a full document by id
 - `delete_document` — Remove a document, its chunks, and associated original files
 - `delete_crawl_session` — Remove all documents created by a crawl session
@@ -162,7 +155,7 @@ Configure behavior via environment variables. Important options:
 ## AI provider validation
 
 - Start the server with the provider env vars configured.
-- Use `list_documents` to obtain a document ID.
+- Use `list_documents` (with `limit`/`offset`) to obtain a document ID.
 - Call `search_documents_with_ai` with a query and verify JSON output contains `search_results` and `relevant_sections`.
 
 ## Embedding provider validation
@@ -404,9 +397,7 @@ The system derives embedding dimensions from the selected provider (Transformers
 ## Development
 
 ```bash
-git clone https://github.com/andrea9293/mcp-documentation-server.git
-```
-```bash
+git clone https://github.com/maxinedotdev/mcp-documentation-server.git
 cd mcp-documentation-server
 ```
 
@@ -430,19 +421,15 @@ npm run inspect
 ## License
 
 MIT - see [LICENSE](LICENSE) file
- 
 
 ## Support
 
-- 📖 [Documentation](https://github.com/andrea9293/mcp-documentation-server)
-- 🐛 [Report Issues](https://github.com/andrea9293/mcp-documentation-server/issues)
+- 📖 [Documentation](https://github.com/maxinedotdev/mcp-documentation-server)
+- 🐛 [Report Issues](https://github.com/maxinedotdev/mcp-documentation-server/issues)
 - 💬 [MCP Community](https://modelcontextprotocol.io/)
 
----
+## Acknowledgments
 
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=andrea9293/mcp-documentation-server&type=Date)](https://www.star-history.com/#andrea9293/mcp-documentation-server&Date)
-
+This project was originally created by [@andrea9293](https://github.com/andrea9293). It has been forked and is now maintained by [maxinedotdev](https://github.com/maxinedotdev).
 
 **Built with [FastMCP](https://github.com/punkpeye/fastmcp) and TypeScript** 🚀
