@@ -21,6 +21,17 @@ export interface Document {
     updated_at: string;
 }
 
+export interface DocumentSummary {
+    id: string;
+    title: string;
+    created_at: string;
+    updated_at: string;
+    content_length: number;
+    chunks_count: number;
+    metadata?: Record<string, any>;
+    content_preview?: string;
+}
+
 export interface SearchResult {
     chunk: DocumentChunk;
     score: number;
