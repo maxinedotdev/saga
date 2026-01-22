@@ -34,6 +34,60 @@ export class GeminiSearchService {
 
         return await performGeminiSearch(documentId, query, dataDir, geminiApiKey);
     }
+
+    /**
+     * Generate tags for a document using Gemini AI
+     * @param title The document title
+     * @param content The document content (truncated if needed)
+     * @param apiKey Optional API key (will use env var if not provided)
+     * @returns JSON array of tag strings
+     */
+    public static async generateTags(
+        title: string,
+        content: string,
+        apiKey?: string
+    ): Promise<string> {
+        const geminiApiKey = process.env.GEMINI_API_KEY || apiKey;
+        if (!geminiApiKey) {
+            throw new Error('GEMINI_API_KEY environment variable is required for tag generation');
+        }
+
+        const ai = new GoogleGenAI({
+            apiKey: geminiApiKey,
+        });
+
+        const config = {
+            responseMimeType: 'application/json',
+            responseSchema: {
+                type: Type.ARRAY,
+                items: {
+                    type: Type.STRING,
+                },
+            },
+            systemInstruction: [
+                {
+                    text: `You are an expert document tagger. Generate relevant tags for the given document. Tags should be:
+- Concise (1-3 words each)
+- Descriptive and meaningful
+- Relevant to the document's main topics
+- Lowercase (except for proper nouns)
+- Free of special characters
+
+Generate 5-10 relevant tags for the document.`,
+                },
+            ],
+        };
+
+        const prompt = `Document title: ${title}\n\nDocument content:\n${content}\n\nGenerate 5-10 relevant tags for this document.`;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            config: config,
+            contents: prompt,
+        });
+
+        return response.text || '[]';
+    }
 }
 
 async function performGeminiSearch(
