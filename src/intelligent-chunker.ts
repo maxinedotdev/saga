@@ -264,48 +264,48 @@ export class IntelligentChunker {
     private getOptimalOptions(contentType: ContentType, userOptions: ChunkOptions): ChunkOptions {
         const defaults: Record<ContentType, ChunkOptions> = {
             [ContentType.CODE]: {
-                maxSize: 150,
-                overlap: 30, // ~20% overlap
-                minSize: 50,
+                maxSize: 500,      // WAS: 150
+                overlap: 100,      // WAS: 30 (20% overlap)
+                minSize: 150,
                 preserveCodeBlocks: true,
                 adaptiveSize: true,
                 addContext: true
             },
             [ContentType.MARKDOWN]: {
-                maxSize: 400,
-                overlap: 60, // ~15% overlap
-                minSize: 100,
+                maxSize: 800,      // WAS: 400
+                overlap: 160,      // WAS: 60 (20% overlap)
+                minSize: 200,
                 preserveMarkdown: true,
                 adaptiveSize: true,
                 addContext: true
             },
             [ContentType.HTML]: {
-                maxSize: 300,
-                overlap: 50,
-                minSize: 80,
+                maxSize: 600,      // WAS: 300
+                overlap: 120,      // WAS: 50 (20% overlap)
+                minSize: 150,
                 adaptiveSize: true,
                 addContext: true
             },
             [ContentType.TEXT]: {
-                maxSize: 500,
-                overlap: 75, // ~15% overlap
-                minSize: 100,
-                adaptiveSize: false,
+                maxSize: 1000,     // WAS: 500
+                overlap: 200,      // WAS: 75 (20% overlap)
+                minSize: 200,
+                adaptiveSize: true,
                 addContext: true
             },
             [ContentType.MIXED]: {
-                maxSize: 300,
-                overlap: 60,
-                minSize: 80,
+                maxSize: 600,      // WAS: 300
+                overlap: 120,      // WAS: 60 (20% overlap)
+                minSize: 150,
                 preserveCodeBlocks: true,
                 preserveMarkdown: true,
                 adaptiveSize: true,
                 addContext: true
             },
             [ContentType.PDF]: {
-                maxSize: 400,
-                overlap: 70, // ~17% overlap  
-                minSize: 100,
+                maxSize: 800,      // WAS: 400
+                overlap: 160,      // WAS: 70 (20% overlap)
+                minSize: 200,
                 adaptiveSize: true,
                 addContext: true
             }
@@ -561,7 +561,9 @@ export class IntelligentChunker {
         
         if (content.length <= maxSize) {
             // Content fits in one chunk
+            console.error(`[IntelligentChunker] Generating embedding for single chunk (${content.length} chars)`);
             const embeddings = await this.embeddingProvider.generateEmbedding(content);
+            console.error(`[IntelligentChunker] Generated embedding with ${embeddings.length} dimensions`);
             chunks.push({
                 id: `${documentId}_chunk_0`,
                 document_id: documentId,
@@ -596,7 +598,9 @@ export class IntelligentChunker {
                 chunkContent = overlapText + ' ' + chunkContent;
             }
             
+            console.error(`[IntelligentChunker] Generating embedding for chunk ${i} (${chunkContent.length} chars)`);
             const embeddings = await this.embeddingProvider.generateEmbedding(chunkContent);
+            console.error(`[IntelligentChunker] Generated embedding for chunk ${i} with ${embeddings.length} dimensions`);
             const startPos = globalPosition;
             const endPos = globalPosition + split.length;
             
