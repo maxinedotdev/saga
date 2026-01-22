@@ -23,35 +23,47 @@ export class DocumentManager {
     private intelligentChunker: IntelligentChunker;
     private documentIndex: DocumentIndex | null = null;
     private vectorDatabase: VectorDatabase | null = null;
+    private vectorDbInitPromise: Promise<void> | null = null;
     private useIndexing: boolean;
     private useVectorDb: boolean;
     private useParallelProcessing: boolean;
     private useStreaming: boolean;
     
     constructor(embeddingProvider?: EmbeddingProvider, vectorDatabase?: VectorDatabase) {
+        console.error('[DocumentManager] Constructor START');
+        const startTime = Date.now();
+
         // Always use default paths
         const baseDir = getDefaultDataDir();
         this.dataDir = path.join(baseDir, 'data');
         this.uploadsDir = path.join(baseDir, 'uploads');
+        console.error(`[DocumentManager] Data dir: ${this.dataDir}, Uploads dir: ${this.uploadsDir}`);
         
         this.embeddingProvider = embeddingProvider || new SimpleEmbeddingProvider();
         this.intelligentChunker = new IntelligentChunker(this.embeddingProvider);
+        console.error(`[DocumentManager] Embedding provider initialized`);
         
         // Feature flags with fallback
         this.useIndexing = process.env.MCP_INDEXING_ENABLED !== 'false';
         this.useVectorDb = process.env.MCP_VECTOR_DB !== 'inmemory';
         this.useParallelProcessing = process.env.MCP_PARALLEL_ENABLED !== 'false';
         this.useStreaming = process.env.MCP_STREAMING_ENABLED !== 'false';
+        console.error(`[DocumentManager] Feature flags - Indexing: ${this.useIndexing}, VectorDB: ${this.useVectorDb}, Parallel: ${this.useParallelProcessing}, Streaming: ${this.useStreaming}`);
         
+        console.error('[DocumentManager] Ensuring data directories...');
         this.ensureDataDir();
         this.ensureUploadsDir();
+        console.error('[DocumentManager] Data directories ensured');
         
         // Initialize Gemini file mapping service
+        console.error('[DocumentManager] Initializing Gemini file mapping service...');
         GeminiFileMappingService.initialize(this.dataDir);
+        console.error('[DocumentManager] Gemini file mapping service initialized');
         
         // Initialize indexing with error handling
         if (this.useIndexing) {
             try {
+                console.error('[DocumentManager] Creating DocumentIndex...');
                 this.documentIndex = new DocumentIndex(this.dataDir);
                 console.error('[DocumentManager] Indexing enabled');
             } catch (error) {
@@ -61,17 +73,24 @@ export class DocumentManager {
         }
         
         // Initialize vector database with error handling
+        // Note: We initialize asynchronously in the background to avoid blocking the constructor
         if (this.useVectorDb) {
-            try {
-                this.vectorDatabase = vectorDatabase || this.createVectorDatabase();
-                this.initializeVectorDatabase();
-                console.error('[DocumentManager] Vector database initialized');
-            } catch (error) {
-                console.warn('[DocumentManager] Vector database disabled due to error:', error);
+            console.error('[DocumentManager] Creating vector database...');
+            this.vectorDatabase = vectorDatabase || this.createVectorDatabase();
+            console.error('[DocumentManager] Starting vector database initialization in background...');
+            // Initialize asynchronously without blocking constructor, but store the promise
+            this.vectorDbInitPromise = this.initializeVectorDatabase().catch(error => {
+                console.error('[DocumentManager] Vector database initialization failed:', error);
                 this.useVectorDb = false;
                 this.vectorDatabase = null;
-            }
+                this.vectorDbInitPromise = null;
+                throw error;
+            });
+            console.error('[DocumentManager] Vector database initialization started (async, non-blocking)');
         }
+
+        const endTime = Date.now();
+        console.error(`[DocumentManager] Constructor END - took ${endTime - startTime}ms`);
     }
 
     /**
@@ -80,7 +99,8 @@ export class DocumentManager {
     private createVectorDatabase(): VectorDatabase {
         const dbType = process.env.MCP_VECTOR_DB || 'lance';
         const dbPathEnv = process.env.MCP_LANCE_DB_PATH;
-        const dbPath = dbPathEnv ? expandHomeDir(dbPathEnv) : path.join(getDefaultDataDir(), 'lancedb');
+        const defaultDataDir = getDefaultDataDir();
+        const dbPath = dbPathEnv ? expandHomeDir(dbPathEnv) : path.join(defaultDataDir, 'lancedb');
         return createVectorDatabase(dbType, dbPath);
     }
 
@@ -88,23 +108,32 @@ export class DocumentManager {
      * Initialize vector database with automatic migration
      */
     private async initializeVectorDatabase(): Promise<void> {
-        if (!this.vectorDatabase) return;
+        console.error('[DocumentManager] initializeVectorDatabase START');
+        const startTime = Date.now();
+
+        if (!this.vectorDatabase) {
+            console.error('[DocumentManager] initializeVectorDatabase END - no vector database');
+            return;
+        }
 
         try {
+            console.error('[DocumentManager] Calling vectorDatabase.initialize()...');
             await this.vectorDatabase.initialize();
-            
+            console.error('[DocumentManager] vectorDatabase.initialize() completed');
+
             // Attempt migration if needed
             // Check if we should migrate (basic check - can be enhanced)
             const dataDir = this.dataDir;
             const { existsSync } = await import('fs');
-            
+
             // Simple heuristic: if we have JSON files and vector DB is new, migrate
             if (existsSync(dataDir)) {
                 try {
+                    console.error('[DocumentManager] Checking for migration...');
                     const { readdir } = await import('fs/promises');
                     const files = await readdir(dataDir);
                     const jsonFiles = files.filter(f => f.endsWith('.json'));
-                    
+
                     if (jsonFiles.length > 0) {
                         console.error(`[DocumentManager] Found ${jsonFiles.length} JSON documents, attempting migration...`);
                         const result = await migrateFromJson(this.vectorDatabase, getDefaultDataDir());
@@ -113,6 +142,8 @@ export class DocumentManager {
                         } else {
                             console.warn(`[DocumentManager] Migration encountered errors: ${result.errors.join(', ')}`);
                         }
+                    } else {
+                        console.error('[DocumentManager] No JSON files found, skipping migration');
                     }
                 } catch (migrationError) {
                     console.warn('[DocumentManager] Migration attempt failed:', migrationError);
@@ -123,6 +154,9 @@ export class DocumentManager {
             console.error('[DocumentManager] Failed to initialize vector database:', error);
             throw error;
         }
+
+        const endTime = Date.now();
+        console.error(`[DocumentManager] initializeVectorDatabase END - took ${endTime - startTime}ms`);
     }
 
     /**
@@ -132,6 +166,47 @@ export class DocumentManager {
         if (this.documentIndex && this.useIndexing) {
             await this.documentIndex.initialize(this.dataDir);
         }
+    }
+
+    /**
+     * Ensure vector database is initialized before use
+     * This waits for async initialization to complete with a timeout
+     */
+    private async ensureVectorDbReady(): Promise<boolean> {
+        if (!this.useVectorDb || !this.vectorDatabase) {
+            return false;
+        }
+
+        // If there's an ongoing initialization, wait for it (with timeout)
+        if (this.vectorDbInitPromise) {
+            console.error('[DocumentManager] Waiting for vector DB initialization...');
+            try {
+                const timeoutPromise = new Promise<never>((_, reject) => {
+                    setTimeout(() => {
+                        reject(new Error('Vector DB initialization timeout (30s)'));
+                    }, 30000); // 30 second timeout
+                });
+
+                await Promise.race([this.vectorDbInitPromise, timeoutPromise]);
+                console.error('[DocumentManager] Vector DB initialization completed');
+            } catch (error) {
+                console.error('[DocumentManager] Vector DB initialization failed or timed out:', error);
+                // Disable vector DB if initialization fails
+                this.useVectorDb = false;
+                this.vectorDatabase = null;
+                this.vectorDbInitPromise = null;
+                return false;
+            }
+        }
+
+        // Check if vector DB is actually initialized
+        const isInitialized = (this.vectorDatabase as any).isInitialized?.() ?? true;
+        if (!isInitialized) {
+            console.error('[DocumentManager] Vector DB exists but not initialized');
+            return false;
+        }
+
+        return true;
     }
 
     private ensureDataDir(): void {
@@ -182,13 +257,25 @@ export class DocumentManager {
         const id = this.generateId(content);
         const now = new Date().toISOString();
 
-        // Create chunks using intelligent chunker
-        const chunks = await this.intelligentChunker.createChunks(id, content, {
-            maxSize: 500,
-            overlap: 75,
+        // Create chunks using intelligent chunker with environment variable overrides
+        // Use -1 to use intelligent chunker's content-type-specific defaults
+        const envChunkSize = parseInt(process.env.MCP_CHUNK_SIZE || '-1');
+        const envChunkOverlap = parseInt(process.env.MCP_CHUNK_OVERLAP || '-1');
+        
+        const chunkOptions: any = {
             adaptiveSize: true,
             addContext: true
-        });
+        };
+
+        // Only set maxSize and overlap if environment variables are not -1
+        if (envChunkSize > 0) {
+            chunkOptions.maxSize = envChunkSize;
+        }
+        if (envChunkOverlap > 0) {
+            chunkOptions.overlap = envChunkOverlap;
+        }
+
+        const chunks = await this.intelligentChunker.createChunks(id, content, chunkOptions);
 
         const document: Document = {
             id,
@@ -216,15 +303,41 @@ export class DocumentManager {
         // Add chunks to vector database if enabled
         if (this.useVectorDb && this.vectorDatabase) {
             try {
+                console.error(`[DocumentManager] Adding chunks to vector DB - useVectorDb: ${this.useVectorDb}, vectorDatabase exists: ${!!this.vectorDatabase}`);
+                
+                // Ensure vector DB is ready before adding chunks
+                const vectorDbReady = await this.ensureVectorDbReady();
+                if (!vectorDbReady) {
+                    console.error('[DocumentManager] Vector DB not ready, skipping chunk indexing');
+                    return document;
+                }
+                
+                // Check if vector DB is initialized (diagnostic)
+                const isInitialized = (this.vectorDatabase as any).isInitialized?.() ?? true;
+                console.error(`[DocumentManager] Vector DB initialized: ${isInitialized}`);
+                
                 // Filter chunks that have embeddings
                 const chunksWithEmbeddings = chunks.filter(chunk => chunk.embeddings && chunk.embeddings.length > 0);
+                console.error(`[DocumentManager] Total chunks: ${chunks.length}, Chunks with embeddings: ${chunksWithEmbeddings.length}`);
+                
                 if (chunksWithEmbeddings.length > 0) {
+                    console.error(`[DocumentManager] Calling addChunks for ${chunksWithEmbeddings.length} chunks...`);
                     await this.vectorDatabase.addChunks(chunksWithEmbeddings);
+                    console.error(`[DocumentManager] Successfully added ${chunksWithEmbeddings.length} chunks to vector DB`);
+                } else {
+                    console.warn(`[DocumentManager] No chunks with embeddings to add to vector DB (total: ${chunks.length})`);
                 }
             } catch (error) {
-                console.warn('[DocumentManager] Failed to add chunks to vector database:', error);
+                console.error('[DocumentManager] FAILED to add chunks to vector database. Error:', error);
+                console.error('[DocumentManager] Error details:', {
+                    message: error instanceof Error ? error.message : String(error),
+                    stack: error instanceof Error ? error.stack : undefined,
+                    name: error instanceof Error ? error.name : undefined
+                });
                 // Continue without vector DB - non-critical error
             }
+        } else {
+            console.warn(`[DocumentManager] Vector DB not enabled or not available. useVectorDb: ${this.useVectorDb}, vectorDatabase: ${!!this.vectorDatabase}`);
         }
 
         return document;
@@ -369,6 +482,9 @@ export class DocumentManager {
     async searchDocuments(documentId: string, query: string, limit = 10): Promise<SearchResult[]> {
         const queryEmbedding = await this.embeddingProvider.generateEmbedding(query);
 
+        // Get similarity threshold from environment variable
+        const similarityThreshold = parseFloat(process.env.MCP_SIMILARITY_THRESHOLD || '0.0');
+
         // Use vector database if available
         if (this.useVectorDb && this.vectorDatabase) {
             try {
@@ -377,7 +493,8 @@ export class DocumentManager {
                     limit,
                     `document_id = '${documentId}'`
                 );
-                return results;
+                // Filter by similarity threshold
+                return results.filter(result => result.score >= similarityThreshold);
             } catch (error) {
                 console.warn('[DocumentManager] Vector database search failed, falling back to in-memory:', error);
                 // Fall through to in-memory search
@@ -396,6 +513,7 @@ export class DocumentManager {
                 chunk,
                 score: this.cosineSimilarity(queryEmbedding, chunk.embeddings!)
             }))
+            .filter(result => result.score >= similarityThreshold)
             .sort((a, b) => b.score - a.score)
             .slice(0, limit);
 
