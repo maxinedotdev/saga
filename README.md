@@ -408,8 +408,9 @@ npm run inspect
 
 ### Branch conventions (local)
 - `develop` is the active integration branch
-- `staging` is the runtime branch; promote by merging `develop` via `./promote-to-staging.sh` (use `--push` to publish)
+- `staging` is the runtime branch; promote by merging `develop` via `./promote-to-staging.sh` (use `--push` to publish, or `npm run promote:staging`)
 - `main` tracks upstream and should remain clean locally
+- Switch back to the dev worktree with `./switch-to-develop.sh` or `npm run switch:develop` (auto-stashes/restores local changes)
 
 ### Local branch protection
 This repo includes local git hooks that block commits on `main`, block direct commits on `staging`, and block pushes to `main`.
