@@ -1,6 +1,7 @@
 import { DocumentManager } from './document-manager.js';
 import { normalizeText } from './utils.js';
 import { randomUUID } from 'crypto';
+import { convert } from 'html-to-text';
 
 const DEFAULT_USER_AGENT = 'MCP-Documentation-Server/1.0';
 const MAX_SITEMAP_FETCHES = 10;
@@ -505,18 +506,33 @@ function extractHtmlLinks(html: string, baseUrl: URL): string[] {
 }
 
 function stripHtml(html: string): string {
-    let text = html;
-    text = text.replace(/<script[\s\S]*?<\/script>/gi, ' ');
-    text = text.replace(/<style[\s\S]*?<\/style>/gi, ' ');
-    text = text.replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ');
-    text = text.replace(/<!--[\s\S]*?-->/g, ' ');
-    text = text.replace(/<([a-z0-9]+)[^>]*style=['"][^'"]*(display\s*:\s*none|visibility\s*:\s*hidden)[^'"]*['"][^>]*>[\s\S]*?<\/\1>/gi, ' ');
-    text = text.replace(/<(br|\/p|\/div|\/li|\/h\d|\/tr|\/table|\/section|\/article|\/ul|\/ol|\/pre|\/code|\/blockquote)[^>]*>/gi, '\n');
-    text = text.replace(/<[^>]+>/g, ' ');
-    text = decodeHtmlEntities(text);
-    text = text.replace(/[ \t]+/g, ' ');
-    text = text.replace(/\n{3,}/g, '\n\n');
-    return text.trim();
+    // Use html-to-text library for proper HTML to text conversion
+    return convert(html, {
+        wordwrap: false, // Don't wrap lines at a specific width
+        preserveNewlines: true, // Preserve paragraph structure
+        selectors: [
+            // Skip navigation, headers, footers, and other non-content elements
+            { selector: 'nav', format: 'skip' },
+            { selector: 'header', format: 'skip' },
+            { selector: 'footer', format: 'skip' },
+            { selector: 'aside', format: 'skip' },
+            { selector: '[role="navigation"]', format: 'skip' },
+            { selector: '[role="banner"]', format: 'skip' },
+            { selector: '[role="contentinfo"]', format: 'skip' },
+            { selector: '[role="complementary"]', format: 'skip' },
+            { selector: 'script', format: 'skip' },
+            { selector: 'style', format: 'skip' },
+            { selector: 'noscript', format: 'skip' },
+            { selector: '.navigation', format: 'skip' },
+            { selector: '.nav', format: 'skip' },
+            { selector: '.sidebar', format: 'skip' },
+            { selector: '.menu', format: 'skip' },
+            { selector: '.breadcrumb', format: 'skip' },
+            { selector: '.pagination', format: 'skip' },
+            { selector: '.footer', format: 'skip' },
+            { selector: '.header', format: 'skip' },
+        ],
+    });
 }
 
 function decodeHtmlEntities(value: string): string {
