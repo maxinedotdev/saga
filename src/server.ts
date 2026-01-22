@@ -94,7 +94,7 @@ server.addTool({
     parameters: z.object({
         document_id: z.string().describe("The ID of the document to search within"),
         query: z.string().describe("The search query"),
-        limit: z.number().optional().default(10).describe("Maximum number of chunk results to return"),
+        limit: z.number().optional().describe("Maximum number of chunk results to return (defaults to MCP_MAX_SEARCH_RESULTS env var or 10)"),
     }), execute: async (args) => {
         try {
             const manager = await initializeDocumentManager();
@@ -103,7 +103,10 @@ server.addTool({
             if (!document) {
                 throw new Error(`Document with ID '${args.document_id}' Not found. Use 'list_documents' to get all id of documents.`);
             }
-            const results = await manager.searchDocuments(args.document_id, args.query, args.limit);
+            // Use environment variable for default limit if not provided
+            const defaultLimit = parseInt(process.env.MCP_MAX_SEARCH_RESULTS || '10');
+            const limit = args.limit || defaultLimit;
+            const results = await manager.searchDocuments(args.document_id, args.query, limit);
 
             if (results.length === 0) {
                 return "No chunks found matching your query in the specified document.";

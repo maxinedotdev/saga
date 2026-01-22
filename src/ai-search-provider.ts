@@ -6,7 +6,7 @@ const LM_STUDIO_BASE_URL = 'http://127.0.0.1:1234';
 const SYNTHETIC_BASE_URL = 'https://api.synthetic.new/openai/v1';
 const DEFAULT_LOCAL_MODEL = 'ministral-3-8b-instruct-2512';
 const DEFAULT_REMOTE_MODEL = 'glm-4.7';
-const DEFAULT_MAX_CONTEXT_CHUNKS = 6;
+const DEFAULT_MAX_CONTEXT_CHUNKS = 12;
 
 export type AiProviderType = 'gemini' | 'openai';
 
