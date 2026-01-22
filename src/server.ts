@@ -426,6 +426,42 @@ if (aiProviderSelection.enabled) {
     console.error(`[Server] AI search tool disabled (${aiProviderSelection.reason || 'provider not configured'})`);
 }
 
+// Query documents tool
+server.addTool({
+    name: "query",
+    description: "A search tool that returns only the most relevant document IDs and summaries. Perform query-first discovery to find the most relevant documents before retrieving their full content.",
+    parameters: z.object({
+        query: z.string().describe("The search query text"),
+        limit: z.number().int().min(1).max(200).default(10).describe("Maximum number of results to return (default 10, max 200)"),
+        offset: z.number().int().min(0).default(0).describe("Number of results to skip for pagination"),
+        include_metadata: z.boolean().default(true).describe("Include full metadata objects in results (default true)"),
+        filters: z.object({
+            tags: z.array(z.string()).optional().describe("Filter by document tags"),
+            source: z.string().optional().describe("Filter by document source (e.g., 'upload', 'crawl', 'api')"),
+            crawl_id: z.string().optional().describe("Filter by crawl session ID"),
+            author: z.string().optional().describe("Filter by document author"),
+            contentType: z.string().optional().describe("Filter by content type"),
+        }).optional().describe("Optional metadata filters to apply"),
+    }),
+    execute: async (args) => {
+        try {
+            const manager = await initializeDocumentManager();
+            
+            // Call the query method with appropriate parameters
+            const result = await manager.query(args.query, {
+                limit: args.limit,
+                offset: args.offset,
+                include_metadata: args.include_metadata,
+                filters: args.filters ?? {},
+            });
+
+            return JSON.stringify(result, null, 2);
+        } catch (error) {
+            throw new Error(`Query failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    },
+});
+
 // Search code blocks tool
 server.addTool({
     name: "search_code_blocks",
