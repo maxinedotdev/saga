@@ -8,8 +8,20 @@ if [[ -z "$branch" ]]; then
 fi
 
 case "$branch" in
-  main|staging)
+  main)
     echo "ERROR: Commits to '$branch' are blocked locally. Use 'develop' or a feature branch." >&2
+    exit 1
+    ;;
+  staging)
+    merge_head_file="$(git rev-parse --git-path MERGE_HEAD)"
+    if [[ -f "$merge_head_file" ]]; then
+      merge_head="$(cat "$merge_head_file")"
+      develop_head="$(git rev-parse develop 2>/dev/null || true)"
+      if [[ -n "$develop_head" && "$merge_head" == "$develop_head" ]]; then
+        exit 0
+      fi
+    fi
+    echo "ERROR: Direct commits to 'staging' are blocked locally. Merge 'develop' into 'staging' to promote changes." >&2
     exit 1
     ;;
 esac
