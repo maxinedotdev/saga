@@ -71,44 +71,75 @@ export class LanceDBAdapter implements VectorDatabase {
     }
 
     async initialize(): Promise<void> {
+        console.error('[LanceDBAdapter] initialize START');
+        const startTime = Date.now();
+
         if (this.initialized) {
+            console.error('[LanceDBAdapter] Already initialized, returning');
             return;
         }
 
         try {
-            logger.info(`Initializing LanceDB at: ${this.dbPath}`);
+            console.error(`[LanceDBAdapter] Connecting to LanceDB at: ${this.dbPath}`);
             this.db = await lancedb.connect(this.dbPath);
-            
+            console.error('[LanceDBAdapter] LanceDB connected');
+
             // Try to open existing table - will be created on first addChunks if it doesn't exist
             try {
+                console.error(`[LanceDBAdapter] Opening table: ${this.tableName}`);
                 this.table = await this.db.openTable(this.tableName);
                 logger.info(`Opened existing table: ${this.tableName}`);
-                
+
                 // Check if table has data and create vector index if needed
+                console.error('[LanceDBAdapter] Counting rows...');
                 const count = await this.table.countRows();
+                console.error(`[LanceDBAdapter] Table has ${count} rows`);
                 if (count > 0) {
+                    console.error('[LanceDBAdapter] Creating vector index (ivf_pq) with 30 second timeout...');
                     try {
-                        await this.table.createIndex("embedding", {
+                        // Add timeout to prevent hanging on index creation
+                        const indexCreationPromise = this.table.createIndex("embedding", {
                             type: "ivf_pq",
                             metricType: "cosine",
                             num_partitions: 256,
                             num_sub_vectors: 16
                         });
+
+                        const timeoutPromise = new Promise<never>((_, reject) => {
+                            setTimeout(() => {
+                                reject(new Error('Index creation timed out after 30 seconds'));
+                            }, 30000); // 30 second timeout
+                        });
+
+                        await Promise.race([indexCreationPromise, timeoutPromise]);
                         logger.info("Created vector index on 'embedding' column");
+                        console.error('[LanceDBAdapter] Vector index created successfully');
                     } catch (error) {
-                        // Index might already exist, which is fine
-                        logger.debug("Vector index already exists or creation failed:", error);
+                        // Index might already exist or timed out, which is fine
+                        const isTimeout = error instanceof Error && error.message.includes('timed out');
+                        if (isTimeout) {
+                            console.warn('[LanceDBAdapter] Index creation timed out, continuing without index (search will still work but may be slower)');
+                        } else {
+                            logger.debug("Vector index already exists or creation failed:", error);
+                            console.error('[LanceDBAdapter] Vector index already exists or creation failed (continuing)');
+                        }
                     }
+                } else {
+                    console.error('[LanceDBAdapter] Table is empty, skipping index creation');
                 }
-            } catch {
+            } catch (tableError) {
                 // Table doesn't exist yet - will be created when first data is added
-                logger.info(`Table '${this.tableName}' does not exist yet, will be created on first data insertion`);
+                console.error(`[LanceDBAdapter] Table '${this.tableName}' does not exist yet, will be created on first data insertion`);
                 this.table = null;
             }
 
             this.initialized = true;
+            const endTime = Date.now();
+            console.error(`[LanceDBAdapter] initialize END - took ${endTime - startTime}ms`);
             logger.info("LanceDB initialized successfully");
         } catch (error) {
+            const endTime = Date.now();
+            console.error(`[LanceDBAdapter] initialize FAILED after ${endTime - startTime}ms:`, error);
             logger.error("Failed to initialize LanceDB:", error);
             throw new Error(`LanceDB initialization failed: ${error}`);
         }
@@ -136,15 +167,30 @@ export class LanceDBAdapter implements VectorDatabase {
                 
                 // Create vector index after initial data is added
                 try {
-                    await this.table.createIndex("embedding", {
+                    console.error('[LanceDBAdapter] Creating vector index on initial data with 30 second timeout...');
+                    const indexCreationPromise = this.table.createIndex("embedding", {
                         type: "ivf_pq",
                         metricType: "cosine",
                         num_partitions: 256,
                         num_sub_vectors: 16
                     });
+
+                    const timeoutPromise = new Promise<never>((_, reject) => {
+                        setTimeout(() => {
+                            reject(new Error('Index creation timed out after 30 seconds'));
+                        }, 30000); // 30 second timeout
+                    });
+
+                    await Promise.race([indexCreationPromise, timeoutPromise]);
                     logger.info("Created vector index on 'embedding' column");
+                    console.error('[LanceDBAdapter] Vector index created successfully');
                 } catch (error) {
-                    logger.debug("Vector index creation failed (may already exist):", error);
+                    const isTimeout = error instanceof Error && error.message.includes('timed out');
+                    if (isTimeout) {
+                        console.warn('[LanceDBAdapter] Index creation timed out, continuing without index (search will still work but may be slower)');
+                    } else {
+                        logger.debug("Vector index creation failed (may already exist):", error);
+                    }
                 }
             } else {
                 // Table already exists, just add data

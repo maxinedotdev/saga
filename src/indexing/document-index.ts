@@ -23,11 +23,19 @@ export class DocumentIndex {
      * Initialize the index by loading from disk or building from existing documents
      */
     async initialize(dataDir: string): Promise<void> {
-        if (this.initialized) return;
+        console.error('[DocumentIndex] initialize START');
+        const startTime = Date.now();
+
+        if (this.initialized) {
+            console.error('[DocumentIndex] Already initialized, returning');
+            return;
+        }
 
         try {
+            console.error('[DocumentIndex] Attempting to load existing index...');
             // Try to load existing index
             await this.loadIndex();
+            console.error('[DocumentIndex] Existing index loaded successfully');
         } catch (error) {
             console.error('[DocumentIndex] Failed to load existing index, rebuilding:', error);
             // Rebuild index from existing documents
@@ -35,7 +43,8 @@ export class DocumentIndex {
         }
 
         this.initialized = true;
-        console.error(`[DocumentIndex] Initialized with ${this.documentMap.size} documents`);
+        const endTime = Date.now();
+        console.error(`[DocumentIndex] initialize END - took ${endTime - startTime}ms, ${this.documentMap.size} documents`);
     }
 
     /**

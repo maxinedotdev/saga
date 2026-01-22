@@ -18,16 +18,29 @@ const server = new FastMCP({
 let documentManager: DocumentManager;
 
 async function initializeDocumentManager() {
+    console.error('[Server] initializeDocumentManager START');
+    const startTime = Date.now();
+
     if (!documentManager) {
+        console.error('[Server] Creating new DocumentManager...');
         // Get embedding model from environment variable (provider handles defaults)
         const embeddingModel = process.env.MCP_EMBEDDING_MODEL;
+        console.error(`[Server] Embedding model: ${embeddingModel || 'default'}`);
         const embeddingProvider = createLazyEmbeddingProvider(embeddingModel);
+        console.error('[Server] Embedding provider created');
+
           // Constructor will use default paths automatically
+        console.error('[Server] Calling DocumentManager constructor...');
         documentManager = new DocumentManager(embeddingProvider);
-        console.error(`Document manager initialized with: ${embeddingProvider.getModelName()} (lazy loading)`);
-        console.error(`Data directory: ${documentManager.getDataDir()}`);
-        console.error(`Uploads directory: ${documentManager.getUploadsDir()}`);
+        console.error(`[Server] Document manager initialized with: ${embeddingProvider.getModelName()} (lazy loading)`);
+        console.error(`[Server] Data directory: ${documentManager.getDataDir()}`);
+        console.error(`[Server] Uploads directory: ${documentManager.getUploadsDir()}`);
+    } else {
+        console.error('[Server] DocumentManager already exists, reusing');
     }
+
+    const endTime = Date.now();
+    console.error(`[Server] initializeDocumentManager END - took ${endTime - startTime}ms`);
     return documentManager;
 }
 
