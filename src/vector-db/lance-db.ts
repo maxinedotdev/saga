@@ -7,7 +7,7 @@
 
 import * as path from "path";
 import * as os from "os";
-import { DocumentChunk, SearchResult } from "../types.js";
+import { DocumentChunk, SearchResult, CodeBlock, CodeBlockSearchResult } from "../types.js";
 import { getLogger } from "../utils.js";
 import * as lancedb from "@lancedb/lancedb";
 
@@ -61,8 +61,10 @@ export interface VectorDatabase {
 export class LanceDBAdapter implements VectorDatabase {
     private db: any = null;
     private table: any = null;
+    private codeBlocksTable: any = null;
     private dbPath: string;
     private tableName: string;
+    private codeBlocksTableName: string = "code_blocks";
     private initialized: boolean = false;
 
     constructor(dbPath: string, tableName: string = "chunks") {
@@ -131,6 +133,70 @@ export class LanceDBAdapter implements VectorDatabase {
                 // Table doesn't exist yet - will be created when first data is added
                 console.error(`[LanceDBAdapter] Table '${this.tableName}' does not exist yet, will be created on first data insertion`);
                 this.table = null;
+            }
+
+            // Try to open code_blocks table - will be created on first addCodeBlocks if it doesn't exist
+            try {
+                console.error(`[LanceDBAdapter] Opening code_blocks table: ${this.codeBlocksTableName}`);
+                this.codeBlocksTable = await this.db.openTable(this.codeBlocksTableName);
+                logger.info(`Opened existing code_blocks table: ${this.codeBlocksTableName}`);
+
+                // Check if code_blocks table has data and create indexes if needed
+                console.error('[LanceDBAdapter] Counting code_blocks rows...');
+                const codeBlocksCount = await this.codeBlocksTable.countRows();
+                console.error(`[LanceDBAdapter] Code_blocks table has ${codeBlocksCount} rows`);
+
+                if (codeBlocksCount > 0) {
+                    // Create scalar indexes on document_id and language
+                    console.error('[LanceDBAdapter] Creating scalar indexes on code_blocks table...');
+                    try {
+                        await this.codeBlocksTable.createScalarIndex("document_id");
+                        logger.info("Created scalar index on 'document_id' column");
+                        console.error('[LanceDBAdapter] Scalar index on document_id created');
+                    } catch (error) {
+                        logger.debug("Scalar index on document_id already exists or creation failed:", error);
+                    }
+
+                    try {
+                        await this.codeBlocksTable.createScalarIndex("language");
+                        logger.info("Created scalar index on 'language' column");
+                        console.error('[LanceDBAdapter] Scalar index on language created');
+                    } catch (error) {
+                        logger.debug("Scalar index on language already exists or creation failed:", error);
+                    }
+
+                    // Create vector index on embedding
+                    try {
+                        console.error('[LanceDBAdapter] Creating vector index on code_blocks...');
+                        const indexCreationPromise = this.codeBlocksTable.createIndex("embedding", {
+                            type: "ivf_pq",
+                            metricType: "cosine",
+                            num_partitions: 256,
+                            num_sub_vectors: 16
+                        });
+
+                        const timeoutPromise = new Promise<never>((_, reject) => {
+                            setTimeout(() => {
+                                reject(new Error('Code blocks index creation timed out after 30 seconds'));
+                            }, 30000);
+                        });
+
+                        await Promise.race([indexCreationPromise, timeoutPromise]);
+                        logger.info("Created vector index on code_blocks 'embedding' column");
+                        console.error('[LanceDBAdapter] Code_blocks vector index created successfully');
+                    } catch (error) {
+                        const isTimeout = error instanceof Error && error.message.includes('timed out');
+                        if (isTimeout) {
+                            console.warn('[LanceDBAdapter] Code blocks index creation timed out, continuing without index');
+                        } else {
+                            logger.debug("Code blocks vector index already exists or creation failed:", error);
+                        }
+                    }
+                }
+            } catch (codeBlocksTableError) {
+                // Table doesn't exist yet - will be created when first code blocks are added
+                console.error(`[LanceDBAdapter] Code_blocks table '${this.codeBlocksTableName}' does not exist yet, will be created on first code block insertion`);
+                this.codeBlocksTable = null;
             }
 
             this.initialized = true;
@@ -325,6 +391,185 @@ export class LanceDBAdapter implements VectorDatabase {
 
     isInitialized(): boolean {
         return this.initialized;
+    }
+
+    /**
+     * Add code blocks to the code_blocks table
+     * @param codeBlocks - Array of code blocks with embeddings to add
+     */
+    async addCodeBlocks(codeBlocks: CodeBlock[]): Promise<void> {
+        if (!this.initialized) {
+            throw new Error("LanceDB not initialized");
+        }
+
+        try {
+            // Create code_blocks table on first data insertion if it doesn't exist
+            if (!this.codeBlocksTable) {
+                logger.info(`Creating code_blocks table with ${codeBlocks.length} initial code blocks`);
+                this.codeBlocksTable = await this.db.createTable(this.codeBlocksTableName, codeBlocks.map(block => ({
+                    id: block.id,
+                    document_id: block.document_id,
+                    block_id: block.block_id,
+                    block_index: block.block_index,
+                    language: block.language,
+                    content: block.content,
+                    embedding: block.embedding || [],
+                    metadata: block.metadata || {},
+                    source_url: block.source_url || '',
+                })));
+
+                // Create indexes after initial data is added
+                try {
+                    console.error('[LanceDBAdapter] Creating scalar indexes on initial code_blocks data...');
+                    await this.codeBlocksTable.createScalarIndex("document_id");
+                    logger.info("Created scalar index on 'document_id' column");
+                } catch (error) {
+                    logger.debug("Scalar index creation failed (may already exist):", error);
+                }
+
+                try {
+                    await this.codeBlocksTable.createScalarIndex("language");
+                    logger.info("Created scalar index on 'language' column");
+                } catch (error) {
+                    logger.debug("Scalar index on language creation failed (may already exist):", error);
+                }
+
+                // Create vector index with timeout
+                try {
+                    console.error('[LanceDBAdapter] Creating vector index on initial code_blocks data with 30 second timeout...');
+                    const indexCreationPromise = this.codeBlocksTable.createIndex("embedding", {
+                        type: "ivf_pq",
+                        metricType: "cosine",
+                        num_partitions: 256,
+                        num_sub_vectors: 16
+                    });
+
+                    const timeoutPromise = new Promise<never>((_, reject) => {
+                        setTimeout(() => {
+                            reject(new Error('Code blocks index creation timed out after 30 seconds'));
+                        }, 30000);
+                    });
+
+                    await Promise.race([indexCreationPromise, timeoutPromise]);
+                    logger.info("Created vector index on code_blocks 'embedding' column");
+                    console.error('[LanceDBAdapter] Code_blocks vector index created successfully');
+                } catch (error) {
+                    const isTimeout = error instanceof Error && error.message.includes('timed out');
+                    if (isTimeout) {
+                        console.warn('[LanceDBAdapter] Code blocks index creation timed out, continuing without index');
+                    } else {
+                        logger.debug("Code blocks vector index creation failed (may already exist):", error);
+                    }
+                }
+            } else {
+                // Table already exists, just add data
+                const data = codeBlocks.map(block => ({
+                    id: block.id,
+                    document_id: block.document_id,
+                    block_id: block.block_id,
+                    block_index: block.block_index,
+                    language: block.language,
+                    content: block.content,
+                    embedding: block.embedding || [],
+                    metadata: block.metadata || {},
+                    source_url: block.source_url || '',
+                }));
+
+                await this.codeBlocksTable.add(data);
+            }
+
+            logger.debug(`Added ${codeBlocks.length} code blocks to LanceDB`);
+        } catch (error) {
+            logger.error("Failed to add code blocks to LanceDB:", error);
+            throw new Error(`Failed to add code blocks: ${error}`);
+        }
+    }
+
+    /**
+     * Search code blocks using vector similarity
+     * @param queryEmbedding - Query vector embedding
+     * @param limit - Maximum number of results to return
+     * @param language - Optional language filter (e.g., 'javascript', 'python')
+     */
+    async searchCodeBlocks(
+        queryEmbedding: number[],
+        limit: number,
+        language?: string
+    ): Promise<CodeBlockSearchResult[]> {
+        if (!this.initialized) {
+            throw new Error("LanceDB not initialized");
+        }
+
+        if (!this.codeBlocksTable) {
+            // Table doesn't exist yet, return empty results
+            logger.debug("No code_blocks table exists, returning empty search results");
+            return [];
+        }
+
+        try {
+            const query = this.codeBlocksTable.search(queryEmbedding).limit(limit);
+
+            // Apply language filter if provided
+            if (language) {
+                const normalizedLanguage = language.toLowerCase().trim();
+                query.where(`language = '${normalizedLanguage}'`);
+            }
+
+            const results = await query.toArray();
+
+            return results.map((row: any) => ({
+                code_block: {
+                    id: row.id,
+                    document_id: row.document_id,
+                    block_id: row.block_id,
+                    block_index: row.block_index,
+                    language: row.language,
+                    content: row.content,
+                    embedding: row.embedding,
+                    metadata: row.metadata,
+                    source_url: row.source_url,
+                },
+                score: row._distance ? 1 - row._distance : 1, // Convert distance to similarity
+            })).sort((a: CodeBlockSearchResult, b: CodeBlockSearchResult) => b.score - a.score);
+        } catch (error) {
+            logger.error("Failed to search code blocks:", error);
+            throw new Error(`Failed to search code blocks: ${error}`);
+        }
+    }
+
+    /**
+     * Get all code blocks for a specific document
+     * @param documentId - Document ID to get code blocks for
+     */
+    async getCodeBlocksByDocument(documentId: string): Promise<CodeBlock[]> {
+        if (!this.initialized) {
+            throw new Error("LanceDB not initialized");
+        }
+
+        if (!this.codeBlocksTable) {
+            return [];
+        }
+
+        try {
+            const results = await this.codeBlocksTable.query()
+                .where(`document_id = '${documentId}'`)
+                .toArray();
+
+            return results.map((row: any) => ({
+                id: row.id,
+                document_id: row.document_id,
+                block_id: row.block_id,
+                block_index: row.block_index,
+                language: row.language,
+                content: row.content,
+                embedding: row.embedding,
+                metadata: row.metadata,
+                source_url: row.source_url,
+            })).sort((a: CodeBlock, b: CodeBlock) => a.block_index - b.block_index);
+        } catch (error) {
+            logger.error(`Failed to get code blocks for document ${documentId}:`, error);
+            return [];
+        }
     }
 }
 

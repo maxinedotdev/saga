@@ -3,7 +3,7 @@ import { writeFile, readFile, copyFile, readdir, unlink } from "fs/promises";
 import * as path from "path";
 import { glob } from "glob";
 import { createHash } from 'crypto';
-import { Document, DocumentChunk, DocumentSummary, SearchResult, EmbeddingProvider } from './types.js';
+import { Document, DocumentChunk, DocumentSummary, SearchResult, CodeBlock, EmbeddingProvider } from './types.js';
 import { SimpleEmbeddingProvider } from './embedding-provider.js';
 import { IntelligentChunker } from './intelligent-chunker.js';
 import { extractText } from 'unpdf';
@@ -819,6 +819,61 @@ export class DocumentManager {
         }
 
         return { deleted, errors };
+    }
+
+    /**
+     * Add code blocks to the vector database for a document
+     * @param documentId - The document ID to associate code blocks with
+     * @param codeBlocks - Array of code blocks to add
+     * @param metadata - Additional metadata to attach to code blocks
+     */
+    async addCodeBlocks(documentId: string, codeBlocks: CodeBlock[], metadata: Record<string, any> = {}): Promise<void> {
+        if (!this.useVectorDb || !this.vectorDatabase) {
+            console.warn('[DocumentManager] Vector DB not enabled, skipping code block storage');
+            return;
+        }
+
+        try {
+            const vectorDbReady = await this.ensureVectorDbReady();
+            if (!vectorDbReady) {
+                console.warn('[DocumentManager] Vector DB not ready, skipping code block storage');
+                return;
+            }
+
+            // Check if the vector database supports code blocks
+            const addCodeBlocksMethod = (this.vectorDatabase as any).addCodeBlocks;
+            if (typeof addCodeBlocksMethod !== 'function') {
+                console.warn('[DocumentManager] Vector database does not support code blocks, skipping');
+                return;
+            }
+
+            // Generate embeddings for code blocks
+            const codeBlocksWithEmbeddings: CodeBlock[] = [];
+            for (const codeBlock of codeBlocks) {
+                try {
+                    const embedding = await this.embeddingProvider.generateEmbedding(codeBlock.content);
+                    codeBlocksWithEmbeddings.push({
+                        ...codeBlock,
+                        document_id: documentId,
+                        embedding,
+                        metadata: {
+                            ...codeBlock.metadata,
+                            ...metadata,
+                        },
+                    });
+                } catch (error) {
+                    console.warn(`[DocumentManager] Failed to generate embedding for code block: ${error}`);
+                }
+            }
+
+            if (codeBlocksWithEmbeddings.length > 0) {
+                await addCodeBlocksMethod.call(this.vectorDatabase, codeBlocksWithEmbeddings);
+                console.log(`[DocumentManager] Added ${codeBlocksWithEmbeddings.length} code blocks to vector database`);
+            }
+        } catch (error) {
+            console.error('[DocumentManager] Failed to add code blocks:', error);
+            // Continue without code blocks - non-critical error
+        }
     }
 
     /**

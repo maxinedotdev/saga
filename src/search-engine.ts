@@ -1,5 +1,5 @@
 import { DocumentManager } from './document-manager.js';
-import { EmbeddingProvider, SearchResult } from './types.js';
+import { EmbeddingProvider, SearchResult, CodeBlockSearchResult } from './types.js';
 
 /**
  * Search engine that provides semantic search capabilities across all documents
@@ -85,5 +85,68 @@ export class SearchEngine {
      */
     isReady(): boolean {
         return this.embeddingProvider.isAvailable();
+    }
+
+    /**
+     * Search code blocks using semantic similarity
+     * Returns all language variants by default, or filtered by language when specified
+     * @param query - The search query
+     * @param limit - Maximum number of results to return (default 10)
+     * @param language - Optional language filter (e.g., 'javascript', 'python')
+     * @returns Array of code block search results
+     */
+    async searchCodeBlocks(query: string, limit = 10, language?: string): Promise<CodeBlockSearchResult[]> {
+        try {
+            // Generate embedding for the query
+            const queryEmbedding = await this.embeddingProvider.generateEmbedding(query);
+
+            // Get the vector database from the document manager
+            const vectorDatabase = (this.documentManager as any).vectorDatabase;
+            if (!vectorDatabase) {
+                console.warn('[SearchEngine] Vector database not available for code block search');
+                return [];
+            }
+
+            // Check if the vector database supports code block search
+            const searchCodeBlocksMethod = vectorDatabase.searchCodeBlocks;
+            if (typeof searchCodeBlocksMethod !== 'function') {
+                console.warn('[SearchEngine] Vector database does not support code block search');
+                return [];
+            }
+
+            // Perform the search with optional language filter
+            const results = await searchCodeBlocksMethod.call(vectorDatabase, queryEmbedding, limit, language);
+
+            return results;
+        } catch (error) {
+            console.error('[SearchEngine] Code block search failed:', error);
+            throw new Error(`Code block search failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    /**
+     * Get all code blocks for a specific document
+     * @param documentId - The document ID to get code blocks for
+     * @returns Array of code blocks
+     */
+    async getCodeBlocks(documentId: string) {
+        try {
+            const vectorDatabase = (this.documentManager as any).vectorDatabase;
+            if (!vectorDatabase) {
+                console.warn('[SearchEngine] Vector database not available for getting code blocks');
+                return [];
+            }
+
+            const getCodeBlocksMethod = vectorDatabase.getCodeBlocksByDocument;
+            if (typeof getCodeBlocksMethod !== 'function') {
+                console.warn('[SearchEngine] Vector database does not support getting code blocks');
+                return [];
+            }
+
+            return await getCodeBlocksMethod.call(vectorDatabase, documentId);
+        } catch (error) {
+            console.error('[SearchEngine] Failed to get code blocks:', error);
+            throw new Error(`Failed to get code blocks: ${error instanceof Error ? error.message : String(error)}`);
+        }
     }
 }

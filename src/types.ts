@@ -1,5 +1,17 @@
 // Types for the MCP Documentation Server
 
+export interface CodeBlock {
+    id: string;
+    document_id: string;
+    block_id: string;
+    block_index: number;
+    language: string;
+    content: string;
+    embedding?: number[];
+    metadata?: Record<string, any>;
+    source_url?: string;
+}
+
 export interface DocumentChunk {
     id: string;
     document_id: string;
@@ -34,6 +46,11 @@ export interface DocumentSummary {
 
 export interface SearchResult {
     chunk: DocumentChunk;
+    score: number;
+}
+
+export interface CodeBlockSearchResult {
+    code_block: CodeBlock;
     score: number;
 }
 

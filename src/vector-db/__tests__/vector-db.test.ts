@@ -8,7 +8,7 @@ import * as path from 'path';
 import * as os from 'os';
 import assert from 'assert';
 import { LanceDBAdapter, InMemoryVectorDB, createVectorDatabase } from '../lance-db.js';
-import { DocumentChunk } from '../../types.js';
+import { DocumentChunk, CodeBlock } from '../../types.js';
 
 // Test utilities
 const createTestChunk = (id: string, documentId: string, content: string, embeddings?: number[]): DocumentChunk => ({
@@ -41,6 +41,27 @@ const testChunks: DocumentChunk[] = [
     createTestChunk('chunk3', 'doc2', 'Natural language processing is important.', createTestEmbedding(3)),
     createTestChunk('chunk4', 'doc2', 'Vector databases enable efficient similarity search.', createTestEmbedding(4)),
     createTestChunk('chunk5', 'doc3', 'Embeddings represent text as numerical vectors.', createTestEmbedding(5))
+];
+
+// Code block test data
+const createTestCodeBlock = (id: string, documentId: string, blockId: string, language: string, content: string, embedding?: number[]): CodeBlock => ({
+    id,
+    document_id: documentId,
+    block_id: blockId,
+    block_index: 0,
+    language,
+    content,
+    embedding,
+    metadata: { test: true },
+    source_url: 'https://example.com'
+});
+
+const testCodeBlocks: CodeBlock[] = [
+    createTestCodeBlock('cb1', 'doc1', 'block-1', 'javascript', 'const x = 1;\nconsole.log(x);', createTestEmbedding(10)),
+    createTestCodeBlock('cb2', 'doc1', 'block-1', 'python', 'x = 1\nprint(x)', createTestEmbedding(11)),
+    createTestCodeBlock('cb3', 'doc1', 'block-2', 'typescript', 'const x: number = 1;\nconsole.log(x);', createTestEmbedding(12)),
+    createTestCodeBlock('cb4', 'doc2', 'block-3', 'python', 'def hello():\n    print("Hello")', createTestEmbedding(13)),
+    createTestCodeBlock('cb5', 'doc2', 'block-4', 'javascript', 'function hello() {\n    console.log("Hello");\n}', createTestEmbedding(14))
 ];
 
 /**
@@ -306,20 +327,192 @@ async function testErrorHandlingAndFallback() {
 }
 
 /**
+ * Test: Code block extraction and storage
+ */
+async function testCodeBlockExtractionAndStorage() {
+    console.log('\n=== Test: Code Block Extraction and Storage ===');
+
+    try {
+        await import('@lancedb/lancedb');
+    } catch {
+        console.log('⊘ LanceDB not available, skipping code block tests');
+        console.log('⊘ Install @lancedb/lancedb package to run these tests: npm install @lancedb/lancedb');
+        return;
+    }
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codeblock-test-'));
+
+    try {
+        const lanceDB = new LanceDBAdapter(tempDir);
+        await lanceDB.initialize();
+
+        // Test adding code blocks with multiple language variants
+        await lanceDB.addCodeBlocks([testCodeBlocks[0], testCodeBlocks[1], testCodeBlocks[2]]);
+
+        // Test getting code blocks by document
+        const doc1CodeBlocks = await lanceDB.getCodeBlocksByDocument('doc1');
+        assert(doc1CodeBlocks.length === 3, 'Should retrieve all code blocks for doc1');
+        assert(doc1CodeBlocks.every(cb => cb.document_id === 'doc1'), 'All code blocks should belong to doc1');
+
+        // Test that code blocks are sorted by block_index
+        for (let i = 0; i < doc1CodeBlocks.length - 1; i++) {
+            assert(doc1CodeBlocks[i].block_index <= doc1CodeBlocks[i + 1].block_index,
+                'Code blocks should be sorted by block_index');
+        }
+
+        // Test that language tags are normalized
+        const jsBlock = doc1CodeBlocks.find(cb => cb.language === 'javascript');
+        assert(jsBlock !== undefined, 'Should find javascript code block');
+        const tsBlock = doc1CodeBlocks.find(cb => cb.language === 'typescript');
+        assert(tsBlock !== undefined, 'Should find typescript code block');
+
+        // Test adding more code blocks
+        await lanceDB.addCodeBlocks([testCodeBlocks[3], testCodeBlocks[4]]);
+
+        // Test getting code blocks for another document
+        const doc2CodeBlocks = await lanceDB.getCodeBlocksByDocument('doc2');
+        assert(doc2CodeBlocks.length === 2, 'Should retrieve all code blocks for doc2');
+
+        await lanceDB.close();
+        console.log('✓ Code block extraction and storage tests passed');
+    } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+}
+
+/**
+ * Test: Code block search with language filtering
+ */
+async function testCodeBlockSearchWithLanguageFiltering() {
+    console.log('\n=== Test: Code Block Search with Language Filtering ===');
+
+    try {
+        await import('@lancedb/lancedb');
+    } catch {
+        console.log('⊘ LanceDB not available, skipping code block search tests');
+        return;
+    }
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codeblock-search-test-'));
+
+    try {
+        const lanceDB = new LanceDBAdapter(tempDir);
+        await lanceDB.initialize();
+
+        // Add test code blocks
+        await lanceDB.addCodeBlocks(testCodeBlocks);
+
+        // Test search without language filter (should return all variants)
+        const allResults = await lanceDB.searchCodeBlocks(createTestEmbedding(10), 10);
+        assert(allResults.length > 0, 'Should return search results');
+        assert(allResults.every(r => r.score >= 0 && r.score <= 1), 'Scores should be between 0 and 1');
+
+        // Test search with language filter for javascript
+        const jsResults = await lanceDB.searchCodeBlocks(createTestEmbedding(10), 10, 'javascript');
+        assert(jsResults.every(r => r.code_block.language === 'javascript'),
+            'All results should be javascript when filtered');
+
+        // Test search with language filter for python
+        const pythonResults = await lanceDB.searchCodeBlocks(createTestEmbedding(10), 10, 'python');
+        assert(pythonResults.every(r => r.code_block.language === 'python'),
+            'All results should be python when filtered');
+
+        // Test that case-insensitive language matching works
+        const jsResultsUpperCase = await lanceDB.searchCodeBlocks(createTestEmbedding(10), 10, 'JavaScript');
+        assert(jsResultsUpperCase.every(r => r.code_block.language === 'javascript'),
+            'Language filter should be case-insensitive');
+
+        // Test search with non-existent language
+        const emptyResults = await lanceDB.searchCodeBlocks(createTestEmbedding(10), 10, 'rust');
+        assert(emptyResults.length === 0, 'Should return empty results for non-existent language');
+
+        await lanceDB.close();
+        console.log('✓ Code block search with language filtering tests passed');
+    } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+}
+
+/**
+ * Test: Code block multi-language variant handling
+ */
+async function testCodeBlockMultiLanguageVariants() {
+    console.log('\n=== Test: Code Block Multi-Language Variant Handling ===');
+
+    try {
+        await import('@lancedb/lancedb');
+    } catch {
+        console.log('⊘ LanceDB not available, skipping multi-language variant tests');
+        return;
+    }
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codeblock-multilang-test-'));
+
+    try {
+        const lanceDB = new LanceDBAdapter(tempDir);
+        await lanceDB.initialize();
+
+        // Add code blocks with same block_id but different languages (simulating tabbed code)
+        const multiLangBlocks: CodeBlock[] = [
+            createTestCodeBlock('ml1', 'doc1', 'tabbed-1', 'javascript', 'const x = 1;', createTestEmbedding(20)),
+            createTestCodeBlock('ml2', 'doc1', 'tabbed-1', 'python', 'x = 1', createTestEmbedding(21)),
+            createTestCodeBlock('ml3', 'doc1', 'tabbed-1', 'typescript', 'const x: number = 1;', createTestEmbedding(22)),
+        ];
+
+        await lanceDB.addCodeBlocks(multiLangBlocks);
+
+        // Get all code blocks for the document
+        const docBlocks = await lanceDB.getCodeBlocksByDocument('doc1');
+        assert(docBlocks.length === 3, 'Should retrieve all language variants');
+
+        // Group by block_id to verify variants
+        const groupedByBlockId = docBlocks.reduce((acc, cb) => {
+            if (!acc[cb.block_id]) {
+                acc[cb.block_id] = [];
+            }
+            acc[cb.block_id].push(cb);
+            return acc;
+        }, {} as Record<string, CodeBlock[]>);
+
+        assert(groupedByBlockId['tabbed-1']?.length === 3,
+            'Should have 3 language variants for tabbed-1');
+
+        // Verify all languages are present
+        const languages = groupedByBlockId['tabbed-1']!.map(cb => cb.language);
+        assert(languages.includes('javascript'), 'Should include javascript variant');
+        assert(languages.includes('python'), 'Should include python variant');
+        assert(languages.includes('typescript'), 'Should include typescript variant');
+
+        // Test search returns all variants by default
+        const searchResults = await lanceDB.searchCodeBlocks(createTestEmbedding(20), 10);
+        const tabbedBlockResults = searchResults.filter(r => r.code_block.block_id === 'tabbed-1');
+        assert(tabbedBlockResults.length > 0, 'Should return at least one variant in search results');
+
+        await lanceDB.close();
+        console.log('✓ Code block multi-language variant handling tests passed');
+    } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+}
+
+/**
  * Run all unit tests
  */
 async function runUnitTests() {
     console.log('╔═══════════════════════════════════════════════════════════╗');
     console.log('║  Vector Database Unit Tests                                 ║');
     console.log('╚═══════════════════════════════════════════════════════════╝');
-    
+
     try {
         await testVectorDatabaseInterface();
         await testLanceDBAdapter();
         await testInMemoryVectorDB();
         await testBackwardCompatibility();
         await testErrorHandlingAndFallback();
-        
+        await testCodeBlockExtractionAndStorage();
+        await testCodeBlockSearchWithLanguageFiltering();
+        await testCodeBlockMultiLanguageVariants();
+
         console.log('\n╔═══════════════════════════════════════════════════════════╗');
         console.log('║  ✓ All unit tests passed!                                 ║');
         console.log('╚═══════════════════════════════════════════════════════════╝\n');

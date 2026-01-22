@@ -426,6 +426,114 @@ if (aiProviderSelection.enabled) {
     console.error(`[Server] AI search tool disabled (${aiProviderSelection.reason || 'provider not configured'})`);
 }
 
+// Search code blocks tool
+server.addTool({
+    name: "search_code_blocks",
+    description: "Search for code blocks across all documents using semantic similarity. Returns all language variants by default. Use the optional language filter to restrict results to a specific programming language (e.g., 'javascript', 'python', 'typescript'). Always tell the user if result is truncated because of length.",
+    parameters: z.object({
+        query: z.string().describe("The search query for finding relevant code blocks"),
+        limit: z.number().optional().describe("Maximum number of code block results to return (defaults to MCP_MAX_SEARCH_RESULTS env var or 10)"),
+        language: z.string().optional().describe("Optional language filter to restrict results to a specific programming language (e.g., 'javascript', 'python', 'typescript'). If not specified, returns results from all languages."),
+    }),
+    execute: async (args) => {
+        try {
+            const manager = await initializeDocumentManager();
+            const embeddingProvider = createLazyEmbeddingProvider(process.env.MCP_EMBEDDING_MODEL);
+            const { SearchEngine } = await import('./search-engine.js');
+            const searchEngine = new SearchEngine(manager, embeddingProvider);
+
+            // Use environment variable for default limit if not provided
+            const defaultLimit = parseInt(process.env.MCP_MAX_SEARCH_RESULTS || '10');
+            const limit = args.limit || defaultLimit;
+
+            const results = await searchEngine.searchCodeBlocks(args.query, limit, args.language);
+
+            if (results.length === 0) {
+                return args.language
+                    ? `No code blocks found matching your query in ${args.language}. Try searching without a language filter to see all available code blocks.`
+                    : "No code blocks found matching your query.";
+            }
+
+            const searchResults = results.map(result => ({
+                document_id: result.code_block.document_id,
+                block_id: result.code_block.block_id,
+                block_index: result.code_block.block_index,
+                language: result.code_block.language,
+                score: result.score,
+                content: result.code_block.content,
+                source_url: result.code_block.source_url,
+            }));
+
+            const res = {
+                query: args.query,
+                language_filter: args.language || null,
+                hint_for_llm: "Code block search results include all language variants by default. Use the optional language parameter to filter for specific programming languages. Each result is a separate code block variant.",
+                results: searchResults,
+            };
+
+            return JSON.stringify(res, null, 2);
+        } catch (error) {
+            throw new Error(`Code block search failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    },
+});
+
+// Get code blocks for document tool
+server.addTool({
+    name: "get_code_blocks",
+    description: "Get all code blocks for a specific document. Returns all language variants available for each code block. Always tell the user if result is truncated because of length.",
+    parameters: z.object({
+        document_id: z.string().describe("The ID of the document to get code blocks for"),
+    }),
+    execute: async (args) => {
+        try {
+            const manager = await initializeDocumentManager();
+            const embeddingProvider = createLazyEmbeddingProvider(process.env.MCP_EMBEDDING_MODEL);
+            const { SearchEngine } = await import('./search-engine.js');
+            const searchEngine = new SearchEngine(manager, embeddingProvider);
+
+            // Check if document exists
+            const document = await manager.getDocument(args.document_id);
+            if (!document) {
+                throw new Error(`Document with ID '${args.document_id}' not found. Use 'list_documents' to get available document IDs.`);
+            }
+
+            const codeBlocks = await searchEngine.getCodeBlocks(args.document_id);
+
+            if (codeBlocks.length === 0) {
+                return `No code blocks found for document '${args.document_id}'. This document may not have been crawled with code block extraction enabled, or it may not contain any code blocks.`;
+            }
+
+            // Group code blocks by block_id to show variants
+            const groupedBlocks: Record<string, any[]> = {};
+            for (const block of codeBlocks) {
+                if (!groupedBlocks[block.block_id]) {
+                    groupedBlocks[block.block_id] = [];
+                }
+                groupedBlocks[block.block_id].push({
+                    language: block.language,
+                    content: block.content,
+                    block_index: block.block_index,
+                    source_url: block.source_url,
+                });
+            }
+
+            const res = {
+                document_id: args.document_id,
+                document_title: document.title,
+                total_code_blocks: codeBlocks.length,
+                unique_code_block_groups: Object.keys(groupedBlocks).length,
+                hint_for_llm: "Code blocks are grouped by block_id. Each group contains all available language variants for that code block.",
+                code_blocks: groupedBlocks,
+            };
+
+            return JSON.stringify(res, null, 2);
+        } catch (error) {
+            throw new Error(`Failed to get code blocks: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    },
+});
+
 // Performance and Statistics tool
 // server.addTool({
 //     name: "get_performance_stats",
