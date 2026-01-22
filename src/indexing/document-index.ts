@@ -2,6 +2,19 @@ import { createHash } from 'crypto';
 import fse from 'fs-extra';
 import { promises as fsp } from 'fs';
 import * as path from 'path';
+import type { SourceMetadata } from '../types.js';
+
+/**
+ * Document-level search fields for efficient discovery
+ */
+interface DocumentSearchFields {
+    id: string;
+    title: string;
+    tags: string[];
+    tags_generated?: string[];
+    source_metadata: SourceMetadata;
+    keywords: string[];
+}
 
 /**
  * In-memory indexing system for O(1) document and chunk lookups
@@ -12,6 +25,14 @@ export class DocumentIndex {
     private chunkMap = new Map<string, {docId: string, chunkIndex: number}>(); // chunkId -> document info
     private contentHash = new Map<string, string>(); // contentHash -> docId (deduplication)
     private keywordIndex = new Map<string, Set<string>>(); // keyword -> docIds
+    
+    // Document-level search fields for query-first discovery
+    private titleIndex = new Map<string, Set<string>>(); // word -> docIds (from titles)
+    private tagIndex = new Map<string, Set<string>>(); // tag -> docIds
+    private sourceIndex = new Map<string, Set<string>>(); // source -> docIds
+    private crawlIdIndex = new Map<string, Set<string>>(); // crawl_id -> docIds
+    private documentSearchFields = new Map<string, DocumentSearchFields>(); // docId -> search fields
+    
     private initialized = false;
     private indexFilePath: string;
 
@@ -50,7 +71,7 @@ export class DocumentIndex {
     /**
      * Add a document to the index
      */
-    addDocument(id: string, filePath: string, content: string, chunks?: any[]): void {
+    addDocument(id: string, filePath: string, content: string, chunks?: any[], title?: string, metadata?: Record<string, any>): void {
         // Add to document map
         this.documentMap.set(id, filePath);
 
@@ -67,6 +88,9 @@ export class DocumentIndex {
 
         // Extract and index keywords
         this.indexKeywords(id, content);
+
+        // Index document-level search fields
+        this.indexDocumentSearchFields(id, title, content, metadata);
 
         // Persist index
         this.saveIndex().catch(error => 
@@ -106,6 +130,9 @@ export class DocumentIndex {
                 this.keywordIndex.delete(keyword);
             }
         }
+
+        // Remove from document-level search field indices
+        this.removeDocumentSearchFields(id);
 
         // Persist index
         this.saveIndex().catch(error => 
@@ -170,6 +197,71 @@ export class DocumentIndex {
     }
 
     /**
+     * Get document search fields for a document ID
+     */
+    getDocumentSearchFields(docId: string): DocumentSearchFields | undefined {
+        return this.documentSearchFields.get(docId);
+    }
+
+    /**
+     * Get all document search fields
+     */
+    getAllDocumentSearchFields(): Map<string, DocumentSearchFields> {
+        return new Map(this.documentSearchFields);
+    }
+
+    /**
+     * Search documents by tags
+     */
+    searchByTags(tags: string[]): Set<string> {
+        if (tags.length === 0) return new Set();
+
+        let result = this.tagIndex.get(tags[0].toLowerCase()) || new Set();
+        
+        for (let i = 1; i < tags.length; i++) {
+            const tagDocs = this.tagIndex.get(tags[i].toLowerCase()) || new Set();
+            result = new Set([...result].filter(docId => tagDocs.has(docId)));
+        }
+
+        return result;
+    }
+
+    /**
+     * Search documents by source type
+     */
+    searchBySource(source: string): Set<string> {
+        const sourceLower = source.toLowerCase();
+        return this.sourceIndex.get(sourceLower) || new Set();
+    }
+
+    /**
+     * Search documents by crawl ID
+     */
+    searchByCrawlId(crawlId: string): Set<string> {
+        return this.crawlIdIndex.get(crawlId) || new Set();
+    }
+
+    /**
+     * Search documents by title keywords
+     */
+    searchByTitle(title: string): Set<string> {
+        const keywords = this.extractKeywords(title);
+        return this.searchByKeywords(keywords);
+    }
+
+    /**
+     * Search documents by combined criteria (title, tags, keywords)
+     */
+    searchByCombinedCriteria(query: string): Set<string> {
+        const keywords = this.extractKeywords(query);
+        const keywordResults = this.searchByKeywords(keywords);
+        const titleResults = this.searchByTitle(query);
+        
+        // Combine results with union
+        return new Set([...keywordResults, ...titleResults]);
+    }
+
+    /**
      * Hash content for deduplication
      */
     private hashContent(content: string): string {
@@ -220,17 +312,193 @@ export class DocumentIndex {
     }
 
     /**
+     * Index document-level search fields (title, tags, source metadata, keywords)
+     */
+    private indexDocumentSearchFields(docId: string, title?: string, content?: string, metadata?: Record<string, any>): void {
+        // Extract or default source metadata
+        const sourceMetadata: SourceMetadata = {
+            source: metadata?.source || 'api',
+            originalFilename: metadata?.originalFilename,
+            fileExtension: metadata?.fileExtension,
+            crawl_id: metadata?.crawl_id,
+            crawl_url: metadata?.crawl_url,
+            processedAt: metadata?.processedAt || new Date().toISOString()
+        };
+
+        // Extract tags from metadata
+        const tags = this.extractTags(metadata?.tags);
+        const tagsGenerated = this.extractTags(metadata?.tags_generated);
+
+        // Extract keywords from title and content
+        const titleKeywords = title ? this.extractKeywords(title) : [];
+        const contentKeywords = content ? this.extractKeywords(content) : [];
+        // Combine and deduplicate keywords
+        const keywords = Array.from(new Set([...titleKeywords, ...contentKeywords]));
+
+        // Store document search fields
+        const searchFields: DocumentSearchFields = {
+            id: docId,
+            title: title || '',
+            tags,
+            tags_generated: tagsGenerated,
+            source_metadata: sourceMetadata,
+            keywords
+        };
+        this.documentSearchFields.set(docId, searchFields);
+
+        // Index title words
+        if (title) {
+            this.indexTitleWords(docId, title);
+        }
+
+        // Index tags
+        for (const tag of tags) {
+            const tagLower = tag.toLowerCase();
+            if (!this.tagIndex.has(tagLower)) {
+                this.tagIndex.set(tagLower, new Set());
+            }
+            this.tagIndex.get(tagLower)!.add(docId);
+        }
+
+        // Index generated tags
+        for (const tag of tagsGenerated) {
+            const tagLower = tag.toLowerCase();
+            if (!this.tagIndex.has(tagLower)) {
+                this.tagIndex.set(tagLower, new Set());
+            }
+            this.tagIndex.get(tagLower)!.add(docId);
+        }
+
+        // Index source
+        const sourceLower = sourceMetadata.source.toLowerCase();
+        if (!this.sourceIndex.has(sourceLower)) {
+            this.sourceIndex.set(sourceLower, new Set());
+        }
+        this.sourceIndex.get(sourceLower)!.add(docId);
+
+        // Index crawl ID
+        if (sourceMetadata.crawl_id) {
+            if (!this.crawlIdIndex.has(sourceMetadata.crawl_id)) {
+                this.crawlIdIndex.set(sourceMetadata.crawl_id, new Set());
+            }
+            this.crawlIdIndex.get(sourceMetadata.crawl_id)!.add(docId);
+        }
+    }
+
+    /**
+     * Remove document search fields from indices
+     */
+    private removeDocumentSearchFields(docId: string): void {
+        const searchFields = this.documentSearchFields.get(docId);
+        if (!searchFields) return;
+
+        // Remove from title index
+        const titleWords = this.extractKeywords(searchFields.title);
+        for (const word of titleWords) {
+            const wordLower = word.toLowerCase();
+            const titleDocs = this.titleIndex.get(wordLower);
+            if (titleDocs) {
+                titleDocs.delete(docId);
+                if (titleDocs.size === 0) {
+                    this.titleIndex.delete(wordLower);
+                }
+            }
+        }
+
+        // Remove from tag index
+        for (const tag of [...searchFields.tags, ...(searchFields.tags_generated || [])]) {
+            const tagLower = tag.toLowerCase();
+            const tagDocs = this.tagIndex.get(tagLower);
+            if (tagDocs) {
+                tagDocs.delete(docId);
+                if (tagDocs.size === 0) {
+                    this.tagIndex.delete(tagLower);
+                }
+            }
+        }
+
+        // Remove from source index
+        const sourceLower = searchFields.source_metadata.source.toLowerCase();
+        const sourceDocs = this.sourceIndex.get(sourceLower);
+        if (sourceDocs) {
+            sourceDocs.delete(docId);
+            if (sourceDocs.size === 0) {
+                this.sourceIndex.delete(sourceLower);
+            }
+        }
+
+        // Remove from crawl ID index
+        if (searchFields.source_metadata.crawl_id) {
+            const crawlDocs = this.crawlIdIndex.get(searchFields.source_metadata.crawl_id);
+            if (crawlDocs) {
+                crawlDocs.delete(docId);
+                if (crawlDocs.size === 0) {
+                    this.crawlIdIndex.delete(searchFields.source_metadata.crawl_id);
+                }
+            }
+        }
+
+        // Remove from document search fields map
+        this.documentSearchFields.delete(docId);
+    }
+
+    /**
+     * Index title words for search
+     */
+    private indexTitleWords(docId: string, title: string): void {
+        const words = this.extractKeywords(title);
+        for (const word of words) {
+            const wordLower = word.toLowerCase();
+            if (!this.titleIndex.has(wordLower)) {
+                this.titleIndex.set(wordLower, new Set());
+            }
+            this.titleIndex.get(wordLower)!.add(docId);
+        }
+    }
+
+    /**
+     * Extract tags from metadata (can be string, array, or undefined)
+     */
+    private extractTags(tags?: string | string[]): string[] {
+        if (!tags) return [];
+        
+        if (typeof tags === 'string') {
+            // Split by comma and trim whitespace
+            return tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+        }
+        
+        if (Array.isArray(tags)) {
+            return tags.filter(tag => typeof tag === 'string' && tag.trim().length > 0).map(tag => tag.trim());
+        }
+        
+        return [];
+    }
+
+    /**
      * Save index to disk
      */
     private async saveIndex(): Promise<void> {
         const indexData = {
-            version: '1.0',
+            version: '2.0',
             documentMap: Object.fromEntries(this.documentMap),
             chunkMap: Object.fromEntries(this.chunkMap),
             contentHash: Object.fromEntries(this.contentHash),
             keywordIndex: Object.fromEntries(
                 Array.from(this.keywordIndex.entries()).map(([key, value]) => [key, Array.from(value)])
             ),
+            titleIndex: Object.fromEntries(
+                Array.from(this.titleIndex.entries()).map(([key, value]) => [key, Array.from(value)])
+            ),
+            tagIndex: Object.fromEntries(
+                Array.from(this.tagIndex.entries()).map(([key, value]) => [key, Array.from(value)])
+            ),
+            sourceIndex: Object.fromEntries(
+                Array.from(this.sourceIndex.entries()).map(([key, value]) => [key, Array.from(value)])
+            ),
+            crawlIdIndex: Object.fromEntries(
+                Array.from(this.crawlIdIndex.entries()).map(([key, value]) => [key, Array.from(value)])
+            ),
+            documentSearchFields: Object.fromEntries(this.documentSearchFields),
             lastUpdated: new Date().toISOString()
         };
 
@@ -253,6 +521,31 @@ export class DocumentIndex {
         this.keywordIndex = new Map(
             Object.entries(indexData.keywordIndex || {}).map(([key, value]) => [key, new Set(value as string[])])
         );
+        
+        // Load document-level search field indices if available (version 2.0+)
+        if (indexData.titleIndex) {
+            this.titleIndex = new Map(
+                Object.entries(indexData.titleIndex).map(([key, value]) => [key, new Set(value as string[])])
+            );
+        }
+        if (indexData.tagIndex) {
+            this.tagIndex = new Map(
+                Object.entries(indexData.tagIndex).map(([key, value]) => [key, new Set(value as string[])])
+            );
+        }
+        if (indexData.sourceIndex) {
+            this.sourceIndex = new Map(
+                Object.entries(indexData.sourceIndex).map(([key, value]) => [key, new Set(value as string[])])
+            );
+        }
+        if (indexData.crawlIdIndex) {
+            this.crawlIdIndex = new Map(
+                Object.entries(indexData.crawlIdIndex).map(([key, value]) => [key, new Set(value as string[])])
+            );
+        }
+        if (indexData.documentSearchFields) {
+            this.documentSearchFields = new Map(Object.entries(indexData.documentSearchFields || {}));
+        }
     }
 
     /**
@@ -265,6 +558,11 @@ export class DocumentIndex {
         this.chunkMap.clear();
         this.contentHash.clear();
         this.keywordIndex.clear();
+        this.titleIndex.clear();
+        this.tagIndex.clear();
+        this.sourceIndex.clear();
+        this.crawlIdIndex.clear();
+        this.documentSearchFields.clear();
 
         try {
             const files = await fsp.readdir(dataDir);
@@ -276,7 +574,14 @@ export class DocumentIndex {
                     const document = await fse.readJSON(filePath);
                     
                     if (document.id && document.content) {
-                        this.addDocument(document.id, filePath, document.content, document.chunks);
+                        this.addDocument(
+                            document.id,
+                            filePath,
+                            document.content,
+                            document.chunks,
+                            document.title,
+                            document.metadata
+                        );
                     }
                 } catch (error) {
                     console.warn(`[DocumentIndex] Failed to index document ${file}:`, error);

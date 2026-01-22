@@ -127,4 +127,92 @@ export interface ServerConfig {
     maxDocumentSize?: number;
     defaultSearchLimit?: number;
     logLevel?: 'debug' | 'info' | 'warn' | 'error';
+    tagGeneration?: TagGenerationConfig;
+}
+
+/**
+ * Configuration for automatic tag generation
+ */
+export interface TagGenerationConfig {
+    enabled: boolean;
+    useGeneratedTagsInQuery: boolean;
+}
+
+// Document Discovery Types for query-first discovery
+
+/**
+ * Document summary result from a query operation
+ * Contains only essential information without full content
+ */
+export interface DocumentDiscoveryResult {
+    id: string;
+    title: string;
+    score: number;
+    updated_at: string;
+    chunks_count: number;
+    metadata?: Record<string, any>;
+}
+
+/**
+ * Pagination metadata for query results
+ */
+export interface QueryPagination {
+    total_documents: number;
+    returned: number;
+    has_more: boolean;
+    next_offset: number | null;
+}
+
+/**
+ * Complete query response with results and pagination metadata
+ */
+export interface QueryResponse {
+    results: DocumentDiscoveryResult[];
+    pagination: QueryPagination;
+}
+
+/**
+ * Query options for filtering and pagination
+ */
+export interface QueryOptions {
+    limit?: number;
+    offset?: number;
+    include_metadata?: boolean;
+    filters?: MetadataFilter;
+}
+
+/**
+ * Metadata filter for query operations
+ */
+export interface MetadataFilter {
+    tags?: string[];
+    source?: string;
+    crawl_id?: string;
+    author?: string;
+    contentType?: string;
+    [key: string]: any;
+}
+
+/**
+ * Source metadata for tracking document origin
+ */
+export interface SourceMetadata {
+    source: 'upload' | 'crawl' | 'api';
+    originalFilename?: string;
+    fileExtension?: string;
+    crawl_id?: string;
+    crawl_url?: string;
+    processedAt: string;
+}
+
+/**
+ * Document-level search fields for indexing
+ */
+export interface DocumentSearchFields {
+    id: string;
+    title: string;
+    tags: string[];
+    tags_generated?: string[];
+    source_metadata: SourceMetadata;
+    keywords: string[];
 }
