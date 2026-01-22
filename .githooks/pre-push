@@ -1,19 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-blocked_refs=("refs/heads/main" "refs/heads/staging")
+blocked_refs=("refs/heads/main")
 
 while read -r local_ref local_sha remote_ref remote_sha; do
   for blocked in "${blocked_refs[@]}"; do
-    if [[ "$local_ref" == "$blocked" ]]; then
-      echo "ERROR: Pushing '$local_ref' is blocked locally. Promote via develop/staging workflow." >&2
-      exit 1
-    fi
-  done
-  # Skip delete pushes for blocked refs as well
-  for blocked in "${blocked_refs[@]}"; do
-    if [[ "$remote_ref" == "$blocked" && "$local_sha" == 0000000000000000000000000000000000000000 ]]; then
-      echo "ERROR: Deleting '$remote_ref' is blocked locally." >&2
+    if [[ "$remote_ref" == "$blocked" ]]; then
+      if [[ "$local_sha" == 0000000000000000000000000000000000000000 ]]; then
+        echo "ERROR: Deleting '$remote_ref' is blocked locally." >&2
+        exit 1
+      fi
+      echo "ERROR: Pushing '$remote_ref' is blocked locally. Use PR-based updates for main." >&2
       exit 1
     fi
   done
