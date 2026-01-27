@@ -598,6 +598,9 @@ export class DocumentManager {
      * Generate tags using configured AI provider
      */
     private async generateTags(title: string, content: string): Promise<string[]> {
+        console.error('[DocumentManager] generateTags START');
+        console.error(`[DocumentManager] Title: ${title}, Content length: ${content.length}`);
+        
         // Truncate content if too long (keep first 2000 chars for context)
         const truncatedContent = content.length > 2000 ? content.substring(0, 2000) + '...' : content;
         
@@ -606,11 +609,25 @@ export class DocumentManager {
 
         // Check for OpenAI-compatible provider
         const baseUrl = process.env.MCP_AI_BASE_URL;
-        const model = process.env.MCP_AI_MODEL;
+        let model = process.env.MCP_AI_MODEL;
         const apiKey = process.env.MCP_AI_API_KEY;
 
-        if (baseUrl && model) {
+        console.error(`[DocumentManager] AI Provider Config - baseUrl: ${baseUrl || 'NOT SET'}, model: ${model || 'NOT SET'}, apiKey: ${apiKey ? 'SET' : 'NOT SET'}`);
+
+        if (baseUrl) {
+            // Provide default model based on base URL if not specified
+            if (!model) {
+                if (baseUrl.includes('synthetic.new')) {
+                    model = 'hf:zai-org/glm-4.7';
+                    console.error(`[DocumentManager] Using default model for synthetic.new: ${model}`);
+                } else {
+                    model = 'ministral-3-8b-instruct-2512';
+                    console.error(`[DocumentManager] Using default model for LM Studio: ${model}`);
+                }
+            }
+            
             try {
+                console.error('[DocumentManager] Attempting to generate tags via OpenAI-compatible API...');
                 const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
                 const v1BaseUrl = normalizedBaseUrl.endsWith('/v1') ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
                 
@@ -636,21 +653,32 @@ export class DocumentManager {
                 });
                 
                 const payloadText = await response.text();
+                console.error(`[DocumentManager] API Response status: ${response.status}, body: ${payloadText.substring(0, 200)}`);
+                
                 if (!response.ok) {
                     throw new Error(`OpenAI request failed (${response.status}): ${payloadText}`);
                 }
                 
                 const payload = JSON.parse(payloadText);
                 const responseText = payload?.choices?.[0]?.message?.content || '';
+                console.error(`[DocumentManager] AI response text: ${responseText}`);
                 
-                return this.parseTagsFromResponse(responseText);
+                const tags = this.parseTagsFromResponse(responseText);
+                console.error(`[DocumentManager] Parsed tags: ${JSON.stringify(tags)}`);
+                
+                if (tags.length === 0) {
+                    console.warn('[DocumentManager] Tag generation returned empty array. This may be expected if MCP_TAG_GENERATION_ENABLED is not set to true, or if the AI provider could not generate valid tags.');
+                }
+                
+                return tags;
             } catch (error) {
                 console.error('[DocumentManager] Failed to generate tags with OpenAI provider:', error);
+                console.warn('[DocumentManager] Tag generation returned empty array due to error.');
                 return [];
             }
         }
 
-        console.warn('[DocumentManager] AI provider not configured, skipping tag generation');
+        console.warn('[DocumentManager] AI provider not configured. MCP_AI_BASE_URL must be set to enable tag generation.');
         return [];
     }
 

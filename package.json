@@ -1,20 +1,20 @@
 {
-  "name": "@maxinedotdev/mcp-documentation-server",
-  "version": "1.12.0",
+  "name": "@maxinedotdev/saga",
+  "version": "0.2.0",
   "description": "A TypeScript MCP server for document management and semantic search with embeddings, featuring web crawling, multiple AI providers, and intelligent chunking",
   "main": "dist/server.js",
   "type": "module",
   "bin": {
-    "mcp-documentation-server": "dist/server.js",
-    "mcp-documentation-embeddings": "dist/embedding-cli.js"
+    "saga": "dist/server.js",
+    "saga-embeddings": "dist/embedding-cli.js"
   },
-  "homepage": "https://github.com/maxinedotdev/mcp-documentation-server#readme",
+  "homepage": "https://github.com/maxinedotdev/saga#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/maxinedotdev/mcp-documentation-server.git"
+    "url": "git+https://github.com/maxinedotdev/saga.git"
   },
   "bugs": {
-    "url": "https://github.com/maxinedotdev/mcp-documentation-server/issues"
+    "url": "https://github.com/maxinedotdev/saga/issues"
   },
   "scripts": {
     "build": "tsc && shx chmod +x dist/*.js",

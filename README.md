@@ -31,7 +31,7 @@ Optional integration with LLM providers for document analysis and summarization.
 ### File management
 - Copy-based storage with backup preservation
 - Complete deletion removes JSON files and associated originals
-- Local-only storage; all data resides in `~/.mcp-documentation-server/`
+- Local-only storage; all data resides in `~/.saga/`
 
 ## Quick Start
 
@@ -46,10 +46,10 @@ Example configuration for an MCP client (e.g., Claude Desktop):
       "command": "npx",
       "args": [
         "-y",
-        "@maxinedotdev/mcp-documentation-server"
+        "@maxinedotdev/saga"
       ],
       "env": {
-            "MCP_BASE_DIR": "/path/to/workspace",  // Optional, custom data directory (default: ~/.mcp-documentation-server)
+            "MCP_BASE_DIR": "/path/to/workspace",  // Optional, custom data directory (default: ~/.saga)
             "MCP_VECTOR_DB": "lance",  // Optional, "lance" (default) or "memory" (legacy in-memory)
             "MCP_LANCE_DB_PATH": "~/.data/lancedb",  // Optional, custom LanceDB path (default: {dataDir}/lancedb)
             "MCP_EMBEDDING_PROVIDER": "transformers",  // Optional, "transformers" or "openai"
@@ -323,7 +323,7 @@ Configure behavior via environment variables. Important options:
 - Testing and development
 
 ### General Configuration
-- `MCP_BASE_DIR` — base directory for data storage (default: `~/.mcp-documentation-server`). Supports `~` expansion for the home directory.
+- `MCP_BASE_DIR` — base directory for data storage (default: `~/.saga`). Supports `~` expansion for the home directory.
 - `MCP_EMBEDDING_PROVIDER` — embedding provider selection: `transformers` or `openai` (optional; defaults to `transformers`).
 - `MCP_EMBEDDING_MODEL` — embedding model name. Defaults to `Xenova/all-MiniLM-L6-v2` for Transformers.js or `text-embedding-nomic-embed-text-v1.5` for LM Studio.
 - `MCP_EMBEDDING_BASE_URL` — OpenAI-compatible embeddings base URL (required for `openai`, e.g. `http://127.0.0.1:1234`).
@@ -369,7 +369,7 @@ MCP_VECTOR_DB=lance               # "lance" (default) or "memory" (legacy)
 MCP_LANCE_DB_PATH=~/.data/lancedb  # Custom LanceDB path (optional)
 
 # Base Directory
-MCP_BASE_DIR=/path/to/workspace   # Base directory for data storage (default: ~/.mcp-documentation-server)
+MCP_BASE_DIR=/path/to/workspace   # Base directory for data storage (default: ~/.saga)
 
 # Indexing and Performance
 MCP_INDEXING_ENABLED=true          # Enable O(1) indexing (default: true)
@@ -401,7 +401,7 @@ MCP_AI_MAX_CONTEXT_CHUNKS=6        # Max chunks in LLM prompt
 Default storage layout (data directory):
 
 ```
-~/.mcp-documentation-server/  # Or custom path via MCP_BASE_DIR
+~/.saga/  # Or custom path via MCP_BASE_DIR
 ├── data/        # Document JSON files
 │   ├── *.json   # Document metadata and chunks
 │   └── *.md     # Markdown versions of documents
@@ -427,7 +427,7 @@ If you need to re-run migration:
 
 ```bash
 # Re-initialize by deleting LanceDB directory and restarting
-rm -rf ~/.mcp-documentation-server/lancedb
+rm -rf ~/.saga/lancedb
 # Restart your MCP server - migration will run automatically
 ```
 
@@ -660,8 +660,8 @@ The system derives embedding dimensions from the selected provider (Transformers
 ## Development
 
 ```bash
-git clone https://github.com/maxinedotdev/mcp-documentation-server.git
-cd mcp-documentation-server
+git clone https://github.com/maxinedotdev/saga.git
+cd saga
 ```
 
 ```bash
@@ -697,8 +697,8 @@ MIT - see [LICENSE](LICENSE) file
 
 ## Support
 
-- [Documentation](https://github.com/maxinedotdev/mcp-documentation-server)
-- [Report Issues](https://github.com/maxinedotdev/mcp-documentation-server/issues)
+- [Documentation](https://github.com/maxinedotdev/saga)
+- [Report Issues](https://github.com/maxinedotdev/saga/issues)
 - [MCP Community](https://modelcontextprotocol.io/)
 
 ## Acknowledgments

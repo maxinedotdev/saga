@@ -47,11 +47,11 @@ We welcome various types of contributions:
 
 ```bash
 # Fork the repository on GitHub, then clone your fork
-git clone https://github.com/YOUR_USERNAME/mcp-documentation-server.git
-cd mcp-documentation-server
+git clone https://github.com/YOUR_USERNAME/saga.git
+cd saga
 
 # Add upstream remote
-git remote add upstream https://github.com/maxinedotdev/mcp-documentation-server.git
+git remote add upstream https://github.com/maxinedotdev/saga.git
 ```
 
 ### 2. Install Dependencies
@@ -354,8 +354,8 @@ docs/
 ## Getting Help
 
 - 📖 **Documentation**: Check the [README](README.md) first
-- 🐛 **Issues**: [GitHub Issues](https://github.com/maxinedotdev/mcp-documentation-server/issues)
-- 💬 **Discussions**: [GitHub Discussions](https://github.com/maxinedotdev/mcp-documentation-server/discussions)
+- 🐛 **Issues**: [GitHub Issues](https://github.com/maxinedotdev/saga/issues)
+- 💬 **Discussions**: [GitHub Discussions](https://github.com/maxinedotdev/saga/discussions)
 - 📧 **Email**: [maxine@mcp.dev] for sensitive questions
 
 ## Recognition

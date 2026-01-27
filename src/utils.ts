@@ -13,7 +13,7 @@ export function getDefaultDataDir(): string {
     
     // Fall back to home directory
     const homeDir = os.homedir();
-    return path.join(homeDir, '.mcp-documentation-server');
+    return path.join(homeDir, '.saga');
 }
 
 export function expandHomeDir(value: string): string {
