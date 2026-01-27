@@ -1037,14 +1037,14 @@ export class DocumentManager {
                     console.error('[DocumentManager] Generating query embedding...');
                     const queryEmbedding = await this.embeddingProvider.generateEmbedding(queryText);
                     console.error(`[DocumentManager] Query embedding generated with ${queryEmbedding.length} dimensions`);
-                    
-                    const filterQuery = this.buildFilterQuery(filters);
-                    console.error(`[DocumentManager] Filter query: "${filterQuery}"`);
-                    
+
+                    if (Object.keys(filters).length > 0) {
+                        console.error('[DocumentManager] Metadata filters will be applied after vector search (document-level filtering)');
+                    }
+
                     const vectorResults = await this.vectorDatabase.search(
                         queryEmbedding,
-                        limit + offset + 10, // Get extra results for filtering
-                        filterQuery
+                        limit + offset + 10 // Get extra results for filtering
                     );
                     
                     console.error(`[DocumentManager] Vector search returned ${vectorResults.length} results`);
@@ -1121,25 +1121,10 @@ export class DocumentManager {
         if (results.length < minVectorResults && this.useIndexing && this.documentIndex) {
             await this.ensureIndexInitialized();
             const keywordDocIds = this.documentIndex.searchByCombinedCriteria(queryText);
-            
-            // Apply metadata filters to keyword results
-            let filteredDocIds = Array.from(keywordDocIds);
-            if (filters.tags && filters.tags.length > 0) {
-                const tagResults = this.documentIndex.searchByTags(filters.tags);
-                filteredDocIds = filteredDocIds.filter(id => tagResults.has(id));
-            }
-            if (filters.source) {
-                const sourceResults = this.documentIndex.searchBySource(filters.source);
-                filteredDocIds = filteredDocIds.filter(id => sourceResults.has(id));
-            }
-            if (filters.crawl_id) {
-                const crawlResults = this.documentIndex.searchByCrawlId(filters.crawl_id);
-                filteredDocIds = filteredDocIds.filter(id => crawlResults.has(id));
-            }
-            
+
             // Build keyword results
             const keywordResults: DocumentDiscoveryResult[] = [];
-            for (const docId of filteredDocIds) {
+            for (const docId of keywordDocIds) {
                 // Skip if already in vector results
                 if (results.some(r => r.id === docId)) continue;
                 
@@ -1165,6 +1150,9 @@ export class DocumentManager {
             const result = results[i];
             const document = await this.getDocument(result.id);
             if (document) {
+                if (!this.matchesFilters(document.metadata, filters)) {
+                    continue;
+                }
                 finalResults.push({
                     id: document.id,
                     title: document.title,
@@ -1188,6 +1176,60 @@ export class DocumentManager {
                 next_offset: offset + limit < finalResults.length ? offset + limit : null
             }
         };
+    }
+
+    private matchesFilters(metadata: Record<string, any> | undefined, filters: MetadataFilter): boolean {
+        if (!filters || Object.keys(filters).length === 0) {
+            return true;
+        }
+
+        const docMetadata = metadata || {};
+
+        if (filters.tags && filters.tags.length > 0) {
+            const tags = new Set<string>();
+            const rawTags = docMetadata.tags;
+            const rawGeneratedTags = docMetadata.tags_generated;
+
+            if (Array.isArray(rawTags)) {
+                rawTags.forEach(tag => tags.add(String(tag)));
+            } else if (typeof rawTags === 'string') {
+                tags.add(rawTags);
+            }
+
+            if (this.useGeneratedTagsInQuery) {
+                if (Array.isArray(rawGeneratedTags)) {
+                    rawGeneratedTags.forEach(tag => tags.add(String(tag)));
+                } else if (typeof rawGeneratedTags === 'string') {
+                    tags.add(rawGeneratedTags);
+                }
+            }
+
+            const hasAllTags = filters.tags.every(tag => tags.has(tag));
+            if (!hasAllTags) {
+                return false;
+            }
+        }
+
+        if (filters.source && docMetadata.source !== filters.source) {
+            return false;
+        }
+
+        if (filters.crawl_id && docMetadata.crawl_id !== filters.crawl_id) {
+            return false;
+        }
+
+        if (filters.author && docMetadata.author !== filters.author) {
+            return false;
+        }
+
+        if (filters.contentType) {
+            const contentType = docMetadata.contentType || docMetadata.content_type;
+            if (contentType !== filters.contentType) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

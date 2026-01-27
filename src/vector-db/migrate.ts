@@ -52,7 +52,7 @@ export async function migrateFromJson(
 
         // Find all JSON document files
         const globPattern = dataPath.replace(/\\/g, '/') + "/*.json";
-        const files = await glob(globPattern);
+        const files = (await glob(globPattern)).filter(file => path.basename(file) !== 'document-index.json');
 
         if (files.length === 0) {
             logger.info("No JSON documents found to migrate");

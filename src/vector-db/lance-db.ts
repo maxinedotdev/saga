@@ -67,6 +67,7 @@ export class LanceDBAdapter implements VectorDatabase {
     private tableName: string;
     private codeBlocksTableName: string = "code_blocks";
     private initialized: boolean = false;
+    private metadataSchemaKeys: Set<string> | null = null;
 
     constructor(dbPath: string, tableName: string = "chunks") {
         this.dbPath = dbPath;
@@ -74,31 +75,23 @@ export class LanceDBAdapter implements VectorDatabase {
     }
 
     async initialize(): Promise<void> {
-        console.error('[LanceDBAdapter] initialize START');
         const startTime = Date.now();
 
         if (this.initialized) {
-            console.error('[LanceDBAdapter] Already initialized, returning');
             return;
         }
 
         try {
-            console.error(`[LanceDBAdapter] Connecting to LanceDB at: ${this.dbPath}`);
             this.db = await lancedb.connect(this.dbPath);
-            console.error('[LanceDBAdapter] LanceDB connected');
 
             // Try to open existing table - will be created on first addChunks if it doesn't exist
             try {
-                console.error(`[LanceDBAdapter] Opening table: ${this.tableName}`);
                 this.table = await this.db.openTable(this.tableName);
                 logger.info(`Opened existing table: ${this.tableName}`);
 
                 // Check if table has data and create vector index if needed
-                console.error('[LanceDBAdapter] Counting rows...');
                 const count = await this.table.countRows();
-                console.error(`[LanceDBAdapter] Table has ${count} rows`);
                 if (count > 0) {
-                    console.error('[LanceDBAdapter] Creating vector index (ivf_pq) with 30 second timeout...');
                     try {
                         // Add timeout to prevent hanging on index creation
                         const indexCreationPromise = this.table.createIndex("embedding", {
@@ -116,7 +109,6 @@ export class LanceDBAdapter implements VectorDatabase {
 
                         await Promise.race([indexCreationPromise, timeoutPromise]);
                         logger.info("Created vector index on 'embedding' column");
-                        console.error('[LanceDBAdapter] Vector index created successfully');
                     } catch (error) {
                         // Index might already exist or timed out, which is fine
                         const isTimeout = error instanceof Error && error.message.includes('timed out');
@@ -124,36 +116,27 @@ export class LanceDBAdapter implements VectorDatabase {
                             console.warn('[LanceDBAdapter] Index creation timed out, continuing without index (search will still work but may be slower)');
                         } else {
                             logger.debug("Vector index already exists or creation failed:", error);
-                            console.error('[LanceDBAdapter] Vector index already exists or creation failed (continuing)');
                         }
                     }
-                } else {
-                    console.error('[LanceDBAdapter] Table is empty, skipping index creation');
                 }
             } catch (tableError) {
                 // Table doesn't exist yet - will be created when first data is added
-                console.error(`[LanceDBAdapter] Table '${this.tableName}' does not exist yet, will be created on first data insertion`);
                 this.table = null;
             }
 
             // Try to open code_blocks table - will be created on first addCodeBlocks if it doesn't exist
             try {
-                console.error(`[LanceDBAdapter] Opening code_blocks table: ${this.codeBlocksTableName}`);
                 this.codeBlocksTable = await this.db.openTable(this.codeBlocksTableName);
                 logger.info(`Opened existing code_blocks table: ${this.codeBlocksTableName}`);
 
                 // Check if code_blocks table has data and create indexes if needed
-                console.error('[LanceDBAdapter] Counting code_blocks rows...');
                 const codeBlocksCount = await this.codeBlocksTable.countRows();
-                console.error(`[LanceDBAdapter] Code_blocks table has ${codeBlocksCount} rows`);
 
                 if (codeBlocksCount > 0) {
                     // Create scalar indexes on document_id and language
-                    console.error('[LanceDBAdapter] Creating scalar indexes on code_blocks table...');
                     try {
                         await this.codeBlocksTable.createIndex("document_id", { config: Index.btree() });
                         logger.info("Created scalar index on 'document_id' column");
-                        console.error('[LanceDBAdapter] Scalar index on document_id created');
                     } catch (error) {
                         logger.debug("Scalar index on document_id already exists or creation failed:", error);
                     }
@@ -161,14 +144,12 @@ export class LanceDBAdapter implements VectorDatabase {
                     try {
                         await this.codeBlocksTable.createIndex("language", { config: Index.btree() });
                         logger.info("Created scalar index on 'language' column");
-                        console.error('[LanceDBAdapter] Scalar index on language created');
                     } catch (error) {
                         logger.debug("Scalar index on language already exists or creation failed:", error);
                     }
 
                     // Create vector index on embedding
                     try {
-                        console.error('[LanceDBAdapter] Creating vector index on code_blocks...');
                         const indexCreationPromise = this.codeBlocksTable.createIndex("embedding", {
                             type: "ivf_pq",
                             metricType: "cosine",
@@ -184,7 +165,6 @@ export class LanceDBAdapter implements VectorDatabase {
 
                         await Promise.race([indexCreationPromise, timeoutPromise]);
                         logger.info("Created vector index on code_blocks 'embedding' column");
-                        console.error('[LanceDBAdapter] Code_blocks vector index created successfully');
                     } catch (error) {
                         const isTimeout = error instanceof Error && error.message.includes('timed out');
                         if (isTimeout) {
@@ -196,17 +176,12 @@ export class LanceDBAdapter implements VectorDatabase {
                 }
             } catch (codeBlocksTableError) {
                 // Table doesn't exist yet - will be created when first code blocks are added
-                console.error(`[LanceDBAdapter] Code_blocks table '${this.codeBlocksTableName}' does not exist yet, will be created on first code block insertion`);
                 this.codeBlocksTable = null;
             }
 
             this.initialized = true;
-            const endTime = Date.now();
-            console.error(`[LanceDBAdapter] initialize END - took ${endTime - startTime}ms`);
             logger.info("LanceDB initialized successfully");
         } catch (error) {
-            const endTime = Date.now();
-            console.error(`[LanceDBAdapter] initialize FAILED after ${endTime - startTime}ms:`, error);
             logger.error("Failed to initialize LanceDB:", error);
             throw new Error(`LanceDB initialization failed: ${error}`);
         }
@@ -218,23 +193,29 @@ export class LanceDBAdapter implements VectorDatabase {
         }
 
         try {
+            const metadataSchemaKeys = this.table
+                ? await this.resolveMetadataSchemaKeys()
+                : this.collectMetadataKeys(chunks);
+
             // Create table on first data insertion if it doesn't exist
             if (!this.table) {
                 logger.info(`Creating table '${this.tableName}' with ${chunks.length} initial chunks`);
-                this.table = await this.db.createTable(this.tableName, chunks.map(chunk => ({
+                const data = chunks.map(chunk => ({
                     id: chunk.id,
                     document_id: chunk.document_id,
                     chunk_index: chunk.chunk_index,
                     content: chunk.content,
                     embedding: chunk.embeddings || [],
-                    metadata: chunk.metadata || {},
+                    metadata: this.normalizeMetadata(chunk.metadata, metadataSchemaKeys),
                     start_position: chunk.start_position,
                     end_position: chunk.end_position
-                })));
+                }));
+
+                this.table = await this.db.createTable(this.tableName, data);
+                this.metadataSchemaKeys = metadataSchemaKeys;
                 
                 // Create vector index after initial data is added
                 try {
-                    console.error('[LanceDBAdapter] Creating vector index on initial data with 30 second timeout...');
                     const indexCreationPromise = this.table.createIndex("embedding", {
                         type: "ivf_pq",
                         metricType: "cosine",
@@ -250,7 +231,6 @@ export class LanceDBAdapter implements VectorDatabase {
 
                     await Promise.race([indexCreationPromise, timeoutPromise]);
                     logger.info("Created vector index on 'embedding' column");
-                    console.error('[LanceDBAdapter] Vector index created successfully');
                 } catch (error) {
                     const isTimeout = error instanceof Error && error.message.includes('timed out');
                     if (isTimeout) {
@@ -267,7 +247,7 @@ export class LanceDBAdapter implements VectorDatabase {
                     chunk_index: chunk.chunk_index,
                     content: chunk.content,
                     embedding: chunk.embeddings || [],
-                    metadata: chunk.metadata || {},
+                    metadata: this.normalizeMetadata(chunk.metadata, metadataSchemaKeys),
                     start_position: chunk.start_position,
                     end_position: chunk.end_position
                 }));
@@ -314,6 +294,11 @@ export class LanceDBAdapter implements VectorDatabase {
         }
 
         try {
+            const embeddingDimension = await this.resolveEmbeddingDimension();
+            if (embeddingDimension && queryEmbedding.length !== embeddingDimension) {
+                throw new Error(`Embedding dimension mismatch: table uses ${embeddingDimension}, query uses ${queryEmbedding.length}. Rebuild LanceDB or use a matching embedding model.`);
+            }
+
             const query = this.table.search(queryEmbedding).limit(limit);
             
             if (filter) {
@@ -340,6 +325,99 @@ export class LanceDBAdapter implements VectorDatabase {
             logger.error("Failed to search LanceDB:", error);
             throw new Error(`Failed to search: ${error}`);
         }
+    }
+
+    private async resolveEmbeddingDimension(): Promise<number | null> {
+        if (!this.table) return null;
+        try {
+            const schema = await this.table.schema();
+            const embeddingField = schema?.fields?.find((field: any) => field.name === 'embedding');
+            const listSize = embeddingField?.type?.listSize;
+            return typeof listSize === 'number' ? listSize : null;
+        } catch (error) {
+            logger.warn('Failed to resolve embedding dimension from LanceDB schema:', error);
+            return null;
+        }
+    }
+
+    private async resolveMetadataSchemaKeys(): Promise<Set<string> | null> {
+        if (this.metadataSchemaKeys) {
+            return this.metadataSchemaKeys;
+        }
+        if (!this.table) {
+            return null;
+        }
+
+        try {
+            const schema = await this.table.schema();
+            const metadataField = schema?.fields?.find((field: any) => field.name === 'metadata');
+            const children = metadataField?.type?.children;
+            if (!children || !Array.isArray(children)) {
+                return null;
+            }
+            this.metadataSchemaKeys = new Set(children.map((child: any) => child.name));
+            return this.metadataSchemaKeys;
+        } catch (error) {
+            logger.warn('Failed to resolve metadata schema keys from LanceDB schema:', error);
+            return null;
+        }
+    }
+
+    private collectMetadataKeys(chunks: DocumentChunk[]): Set<string> {
+        const keys = new Set<string>();
+        for (const chunk of chunks) {
+            if (!chunk.metadata) continue;
+            for (const [key, value] of Object.entries(chunk.metadata)) {
+                const sanitized = this.sanitizeMetadataValue(value);
+                if (sanitized !== null && sanitized !== undefined) {
+                    keys.add(key);
+                }
+            }
+        }
+        return keys;
+    }
+
+    private normalizeMetadata(
+        metadata: Record<string, any> | undefined,
+        allowedKeys: Set<string> | null
+    ): Record<string, any> {
+        if (!metadata) {
+            return {};
+        }
+
+        const keys = allowedKeys ?? new Set(Object.keys(metadata));
+        const normalized: Record<string, any> = {};
+
+        for (const key of keys) {
+            if (!Object.prototype.hasOwnProperty.call(metadata, key)) {
+                normalized[key] = null;
+                continue;
+            }
+            const value = this.sanitizeMetadataValue(metadata[key]);
+            if (value !== undefined) {
+                normalized[key] = value;
+            }
+        }
+
+        return normalized;
+    }
+
+    private sanitizeMetadataValue(value: any): any {
+        if (value === null || value === undefined) {
+            return null;
+        }
+        const valueType = typeof value;
+        if (valueType === 'string' || valueType === 'number' || valueType === 'boolean') {
+            return value;
+        }
+        if (Array.isArray(value)) {
+            const filtered = value.filter(item => {
+                const itemType = typeof item;
+                return itemType === 'string' || itemType === 'number' || itemType === 'boolean';
+            });
+            return filtered.length > 0 ? filtered : null;
+        }
+        return null;
     }
 
     async getChunk(chunkId: string): Promise<DocumentChunk | null> {

@@ -57,6 +57,20 @@ export class DocumentIndex {
             // Try to load existing index
             await this.loadIndex();
             console.error('[DocumentIndex] Existing index loaded successfully');
+            
+            // If index file exists but is empty while documents exist, rebuild
+            if (this.documentMap.size === 0) {
+                try {
+                    const files = await fsp.readdir(dataDir);
+                    const hasDocuments = files.some(file => file.endsWith('.json') && file !== 'document-index.json');
+                    if (hasDocuments) {
+                        console.error('[DocumentIndex] Index file is empty but documents exist, rebuilding index...');
+                        await this.rebuildIndex(dataDir);
+                    }
+                } catch (scanError) {
+                    console.warn('[DocumentIndex] Failed to scan data directory for rebuild check:', scanError);
+                }
+            }
         } catch (error) {
             console.error('[DocumentIndex] Failed to load existing index, rebuilding:', error);
             // Rebuild index from existing documents

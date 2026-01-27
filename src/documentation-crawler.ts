@@ -143,7 +143,7 @@ export async function crawlDocumentation(
                 source_url: parsedUrl.toString(),
                 crawl_depth: depth,
                 fetched_at: new Date().toISOString(),
-                content_type: contentType || 'text/plain',
+                contentType: contentType || 'text/plain',
                 untrusted: true,
             });
 
