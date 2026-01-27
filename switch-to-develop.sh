@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_WORKTREE="/Users/cvntress/Documents/git/mcp-documentation-server"
+DEFAULT_WORKTREE="/Users/cvntress/Documents/git/saga"
 DEV_WORKTREE="${DEV_WORKTREE:-$DEFAULT_WORKTREE}"
 
 usage() {
