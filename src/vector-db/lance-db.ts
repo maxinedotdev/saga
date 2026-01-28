@@ -193,14 +193,20 @@ export class LanceDBAdapter implements VectorDatabase {
         }
 
         try {
+            const filteredChunks = chunks.filter(chunk => chunk.embeddings && chunk.embeddings.length > 0);
+            if (filteredChunks.length === 0) {
+                logger.warn("No chunks with embeddings provided, skipping LanceDB add");
+                return;
+            }
+
             const metadataSchemaKeys = this.table
                 ? await this.resolveMetadataSchemaKeys()
-                : this.collectMetadataKeys(chunks);
+                : this.collectMetadataKeys(filteredChunks);
 
             // Create table on first data insertion if it doesn't exist
             if (!this.table) {
-                const orderedChunks = this.prioritizeChunkForSchemaInference(chunks, metadataSchemaKeys);
-                logger.info(`Creating table '${this.tableName}' with ${chunks.length} initial chunks`);
+                const orderedChunks = this.prioritizeChunkForSchemaInference(filteredChunks, metadataSchemaKeys);
+                logger.info(`Creating table '${this.tableName}' with ${filteredChunks.length} initial chunks`);
                 const data = orderedChunks.map(chunk => ({
                     id: chunk.id,
                     document_id: chunk.document_id,
@@ -242,7 +248,7 @@ export class LanceDBAdapter implements VectorDatabase {
                 }
             } else {
                 // Table already exists, just add data
-                const data = chunks.map(chunk => ({
+                const data = filteredChunks.map(chunk => ({
                     id: chunk.id,
                     document_id: chunk.document_id,
                     chunk_index: chunk.chunk_index,
@@ -256,7 +262,7 @@ export class LanceDBAdapter implements VectorDatabase {
                 await this.table.add(data);
             }
             
-            logger.debug(`Added ${chunks.length} chunks to LanceDB`);
+            logger.debug(`Added ${filteredChunks.length} chunks to LanceDB`);
         } catch (error) {
             logger.error("Failed to add chunks to LanceDB:", error);
             throw new Error(`Failed to add chunks: ${error}`);
