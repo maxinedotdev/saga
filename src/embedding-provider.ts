@@ -1,5 +1,5 @@
 import { pipeline } from '@xenova/transformers';
-import { EmbeddingProvider } from './types.js';
+import type { EmbeddingProvider } from './types.js';
 import { EmbeddingCache } from './embeddings/embedding-cache.js';
 
 /**

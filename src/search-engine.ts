@@ -1,5 +1,5 @@
 import { DocumentManager } from './document-manager.js';
-import { EmbeddingProvider, SearchResult, CodeBlockSearchResult } from './types.js';
+import type { EmbeddingProvider, SearchResult, CodeBlockSearchResult } from './types.js';
 
 /**
  * Search engine that provides semantic search capabilities across all documents

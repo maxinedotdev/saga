@@ -1,5 +1,5 @@
 import { DocumentManager } from './document-manager.js';
-import { SearchResult } from './types.js';
+import type { SearchResult } from './types.js';
 
 const LM_STUDIO_BASE_URL = 'http://127.0.0.1:1234';
 const SYNTHETIC_BASE_URL = 'https://api.synthetic.new/openai/v1';

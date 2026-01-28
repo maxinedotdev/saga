@@ -1,4 +1,4 @@
-import { EmbeddingProvider, DocumentChunk } from './types.js';
+import type { EmbeddingProvider, DocumentChunk } from './types.js';
 
 export interface ChunkOptions {
     maxSize?: number;

@@ -2,7 +2,7 @@ import { DocumentManager } from './document-manager.js';
 import { normalizeText } from './utils.js';
 import { createHash, randomUUID } from 'crypto';
 import { convert } from 'html-to-text';
-import { CodeBlock } from './types.js';
+import type { CodeBlock } from './types.js';
 
 const DEFAULT_USER_AGENT = 'MCP-Documentation-Server/1.0';
 const MAX_SITEMAP_FETCHES = 10;
