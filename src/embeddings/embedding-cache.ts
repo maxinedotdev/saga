@@ -6,7 +6,6 @@ import { createHash } from 'crypto';
  */
 export class EmbeddingCache {
     private cache: Map<string, {embedding: number[], timestamp: number, accessCount: number}>;
-    private accessOrder: string[] = []; // Track access order for LRU eviction
     private maxSize: number;
     private hits = 0;
     private misses = 0;
@@ -29,8 +28,9 @@ export class EmbeddingCache {
             cached.timestamp = Date.now();
             cached.accessCount++;
             
-            // Move to end of access order (most recently used)
-            this.updateAccessOrder(hash);
+            // Move to end (most recently used)
+            this.cache.delete(hash);
+            this.cache.set(hash, cached);
             
             this.hits++;
             return cached.embedding;
@@ -45,45 +45,33 @@ export class EmbeddingCache {
      */
     async setEmbedding(text: string, embedding: number[]): Promise<void> {
         const hash = this.hash(text);
-        
-        // Check if we need to evict before adding
-        if (this.cache.size >= this.maxSize && !this.cache.has(hash)) {
-            this.evictLRU();
-        }
-        
+
         // Store the embedding
+        if (this.cache.has(hash)) {
+            this.cache.delete(hash);
+        }
+
         this.cache.set(hash, {
             embedding: [...embedding], // Create a copy to avoid reference issues
             timestamp: Date.now(),
             accessCount: 1
         });
         
-        // Update access order
-        this.updateAccessOrder(hash);
-    }
-
-    /**
-     * Update access order for LRU tracking
-     */
-    private updateAccessOrder(hash: string): void {
-        // Remove from current position
-        const currentIndex = this.accessOrder.indexOf(hash);
-        if (currentIndex !== -1) {
-            this.accessOrder.splice(currentIndex, 1);
+        // Evict least recently used items if needed
+        while (this.cache.size > this.maxSize) {
+            this.evictLRU();
         }
-        
-        // Add to end (most recently used)
-        this.accessOrder.push(hash);
     }
 
     /**
      * Evict least recently used item
      */
     private evictLRU(): void {
-        if (this.accessOrder.length === 0) return;
-        
-        const lruHash = this.accessOrder.shift()!;
-        this.cache.delete(lruHash);
+        const lruKey = this.cache.keys().next().value;
+        if (lruKey === undefined) {
+            return;
+        }
+        this.cache.delete(lruKey);
     }
 
     /**
@@ -123,7 +111,6 @@ export class EmbeddingCache {
      */
     clear(): void {
         this.cache.clear();
-        this.accessOrder = [];
         this.hits = 0;
         this.misses = 0;
     }
@@ -210,7 +197,6 @@ export class EmbeddingCache {
                 timestamp: entry.timestamp,
                 accessCount: entry.accessCount
             });
-            this.accessOrder.push(entry.hash);
         }
         
         console.error(`[EmbeddingCache] Imported ${this.cache.size} cached embeddings`);

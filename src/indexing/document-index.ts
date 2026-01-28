@@ -35,6 +35,8 @@ export class DocumentIndex {
     
     private initialized = false;
     private indexFilePath: string;
+    private saveTimer: ReturnType<typeof setTimeout> | null = null;
+    private suppressAutoSave = false;
 
     constructor(dataDir: string) {
         this.indexFilePath = path.join(dataDir, 'document-index.json');
@@ -110,10 +112,7 @@ export class DocumentIndex {
         // Index document-level search fields
         this.indexDocumentSearchFields(id, title, content, metadata);
 
-        // Persist index
-        this.saveIndex().catch(error => 
-            console.warn('[DocumentIndex] Failed to save index:', error)
-        );
+        this.scheduleSaveIndex();
     }
 
     /**
@@ -152,10 +151,7 @@ export class DocumentIndex {
         // Remove from document-level search field indices
         this.removeDocumentSearchFields(id);
 
-        // Persist index
-        this.saveIndex().catch(error => 
-            console.warn('[DocumentIndex] Failed to save index:', error)
-        );
+        this.scheduleSaveIndex();
     }
 
     /**
@@ -523,6 +519,22 @@ export class DocumentIndex {
     await fse.writeJSON(this.indexFilePath, indexData, { spaces: 2 });
     }
 
+    private scheduleSaveIndex(): void {
+        if (this.suppressAutoSave) {
+            return;
+        }
+        if (this.saveTimer) {
+            return;
+        }
+
+        this.saveTimer = setTimeout(() => {
+            this.saveTimer = null;
+            this.saveIndex().catch(error =>
+                console.warn('[DocumentIndex] Failed to save index:', error)
+            );
+        }, 200);
+    }
+
     /**
      * Load index from disk
      */
@@ -572,6 +584,11 @@ export class DocumentIndex {
     private async rebuildIndex(dataDir: string): Promise<void> {
         console.error('[DocumentIndex] Rebuilding index from existing documents...');
         
+        this.suppressAutoSave = true;
+        if (this.saveTimer) {
+            clearTimeout(this.saveTimer);
+            this.saveTimer = null;
+        }
         this.documentMap.clear();
         this.chunkMap.clear();
         this.contentHash.clear();
@@ -610,6 +627,8 @@ export class DocumentIndex {
             console.error(`[DocumentIndex] Rebuilt index with ${this.documentMap.size} documents`);
         } catch (error) {
             console.error('[DocumentIndex] Failed to rebuild index:', error);
+        } finally {
+            this.suppressAutoSave = false;
         }
     }
 }
