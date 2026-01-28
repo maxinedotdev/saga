@@ -7,6 +7,12 @@ if [[ -z "$branch" ]]; then
   exit 0
 fi
 
+blocked_paths_pattern='^(openspec/|AGENTS\.md|\.kilocode/|plans/|promote-to-staging\.sh|staging-status\.sh)'
+if git diff --cached --name-only | rg -n "$blocked_paths_pattern" >/dev/null 2>&1; then
+  echo "ERROR: Commit includes local-only paths (openspec/ or other ignored artifacts). Remove them before committing." >&2
+  exit 1
+fi
+
 case "$branch" in
   main)
     echo "ERROR: Commits to '$branch' are blocked locally. Use 'develop' or a feature branch." >&2
