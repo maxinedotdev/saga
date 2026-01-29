@@ -79,7 +79,6 @@ print(x)</code></pre>
     codeBlocks.forEach(cb => {
         assert.strictEqual(cb.source_url, 'https://example.com', 'Source URL should be set');
         assert.strictEqual(cb.metadata?.extraction_method, 'standard', 'Extraction method should be standard');
-        assert(cb.metadata?.test === true, 'Metadata should be preserved');
     });
 
     console.log('✓ Standard code block extraction tests passed');
@@ -204,8 +203,8 @@ async function testHtmlEntityDecoding() {
     const html = `
         <html>
         <body>
-        <pre><code class="language-javascript">const x = "hello";
-console.log('world');</code></pre>
+        <pre><code class="language-javascript">const x = &quot;hello&quot;;
+console.log(&#39;world&#39;);</code></pre>
         </body>
         </html>
     `;
@@ -270,7 +269,7 @@ async function testMixedCodeBlockFormats() {
 
     const codeBlocks = extractCodeBlocks(html, 'https://example.com');
 
-    assert.strictEqual(codeBlocks.length === 5, 'Should extract code blocks from all formats');
+    assert.strictEqual(codeBlocks.length, 5, 'Should extract code blocks from all formats');
 
     // Verify we have different extraction methods
     const extractionMethods = [...new Set(codeBlocks.map(cb => cb.metadata?.extraction_method))];

@@ -1,8 +1,7 @@
 import { DocumentManager } from './document-manager.js';
 import { normalizeText } from './utils.js';
-import { normalizeLanguageTag } from './code-block-utils.js';
-import { createHash, randomUUID } from 'crypto';
-import { convert } from 'html-to-text';
+import { randomUUID } from 'crypto';
+import { decodeHtmlEntities, extractHtmlContent } from './html-extraction.js';
 import type { CodeBlock } from './types.js';
 
 const DEFAULT_USER_AGENT = 'MCP-Documentation-Server/1.0';
@@ -560,12 +559,15 @@ function resolveUrl(value: string, origin: string): string | null {
 
 function extractContent(body: string, contentType: string, baseUrl: URL): ExtractedContent {
     if (contentType === 'text/html' || contentType === 'application/xhtml+xml') {
-        const title = extractHtmlTitle(body) || deriveTitleFromUrl(baseUrl);
+        const extracted = extractHtmlContent(body, {
+            sourceUrl: baseUrl.toString(),
+            fallbackTitle: deriveTitleFromUrl(baseUrl),
+        });
         return {
-            text: stripHtml(body),
-            title,
-            links: extractHtmlLinks(body, baseUrl),
-            codeBlocks: extractCodeBlocks(body, baseUrl.toString()),
+            text: extracted.text,
+            title: extracted.title || deriveTitleFromUrl(baseUrl),
+            links: extracted.links,
+            codeBlocks: extracted.codeBlocks,
         };
     }
 
@@ -576,14 +578,6 @@ function extractContent(body: string, contentType: string, baseUrl: URL): Extrac
     };
 }
 
-function extractHtmlTitle(html: string): string {
-    const match = /<title[^>]*>([^<]*)<\/title>/i.exec(html);
-    if (!match) {
-        return '';
-    }
-    return decodeHtmlEntities(match[1]).trim();
-}
-
 function deriveTitleFromUrl(url: URL): string {
     const pathParts = url.pathname.split('/').filter(Boolean);
     if (pathParts.length > 0) {
@@ -592,278 +586,6 @@ function deriveTitleFromUrl(url: URL): string {
     return url.hostname;
 }
 
-function extractHtmlLinks(html: string, baseUrl: URL): string[] {
-    const links: string[] = [];
-    const regex = /href\s*=\s*["']([^"']+)["']/gi;
-    let match: RegExpExecArray | null;
-    while ((match = regex.exec(html)) !== null) {
-        const raw = match[1].trim();
-        if (!raw || raw.startsWith('#')) {
-            continue;
-        }
-        if (raw.startsWith('mailto:') || raw.startsWith('tel:') || raw.startsWith('javascript:') || raw.startsWith('data:')) {
-            continue;
-        }
-        const resolved = resolveUrl(raw, baseUrl.toString());
-        if (resolved) {
-            links.push(resolved);
-        }
-    }
-    return links;
-}
-
-function stripHtml(html: string): string {
-    // Use html-to-text library for proper HTML to text conversion
-    return convert(html, {
-        wordwrap: false, // Don't wrap lines at a specific width
-        preserveNewlines: true, // Preserve paragraph structure
-        selectors: [
-            // Skip navigation, headers, footers, and other non-content elements
-            { selector: 'nav', format: 'skip' },
-            { selector: 'header', format: 'skip' },
-            { selector: 'footer', format: 'skip' },
-            { selector: 'aside', format: 'skip' },
-            { selector: '[role="navigation"]', format: 'skip' },
-            { selector: '[role="banner"]', format: 'skip' },
-            { selector: '[role="contentinfo"]', format: 'skip' },
-            { selector: '[role="complementary"]', format: 'skip' },
-            { selector: 'script', format: 'skip' },
-            { selector: 'style', format: 'skip' },
-            { selector: 'noscript', format: 'skip' },
-            { selector: '.navigation', format: 'skip' },
-            { selector: '.nav', format: 'skip' },
-            { selector: '.sidebar', format: 'skip' },
-            { selector: '.menu', format: 'skip' },
-            { selector: '.breadcrumb', format: 'skip' },
-            { selector: '.pagination', format: 'skip' },
-            { selector: '.footer', format: 'skip' },
-            { selector: '.header', format: 'skip' },
-        ],
-    });
-}
-
-function decodeHtmlEntities(value: string): string {
-    return value
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>');
-}
-
-function hashCodeBlockContent(content: string): string {
-    return createHash('sha256')
-        .update(content)
-        .digest('hex')
-        .substring(0, 16);
-}
-
 // Export functions for testing
-export { extractCodeBlocks, normalizeLanguageTag };
-
-/**
- * Extract all code blocks from HTML, including all language variants from tabbed interfaces
- * Returns an array of CodeBlock objects with normalized language tags
- */
-function extractCodeBlocks(html: string, sourceUrl: string): CodeBlock[] {
-    const codeBlocks: CodeBlock[] = [];
-    let blockCounter = 0;
-    const seenContent = new Map<string, number>();
-    const seenContentLang = new Set<string>();
-
-    const pushBlock = (block: CodeBlock) => {
-        const contentHash = hashCodeBlockContent(block.content);
-        const langKey = `${contentHash}:${block.language}`;
-
-        if (block.language === 'unknown') {
-            if (seenContent.has(contentHash)) {
-                return;
-            }
-            codeBlocks.push(block);
-            seenContent.set(contentHash, codeBlocks.length - 1);
-            seenContentLang.add(langKey);
-            return;
-        }
-
-        if (seenContentLang.has(langKey)) {
-            return;
-        }
-
-        const existingIndex = seenContent.get(contentHash);
-        if (existingIndex !== undefined) {
-            const existing = codeBlocks[existingIndex];
-            if (existing && existing.language === 'unknown') {
-                codeBlocks[existingIndex] = block;
-                seenContentLang.add(langKey);
-                return;
-            }
-        }
-
-        codeBlocks.push(block);
-        seenContentLang.add(langKey);
-        if (!seenContent.has(contentHash)) {
-            seenContent.set(contentHash, codeBlocks.length - 1);
-        }
-    };
-    
-    // Pattern 1: Standard code blocks with language class
-    // Matches: <pre><code class="language-javascript">...</code></pre>
-    // Matches: <pre><code class="javascript">...</code></pre>
-    const standardCodePattern = /<pre[^>]*>\s*<code[^>]*class=["'](?:language-)?([^"']+)["'][^>]*>([\s\S]*?)<\/code>\s*<\/pre>/gi;
-    
-    let match: RegExpExecArray | null;
-    while ((match = standardCodePattern.exec(html)) !== null) {
-        const language = normalizeLanguageTag(match[1]);
-        const content = decodeHtmlEntities(match[2].trim());
-        
-        // Skip empty code blocks
-        if (!content) continue;
-        
-        pushBlock({
-            id: `${blockCounter}`,
-            document_id: '', // Will be set by DocumentManager
-            block_id: `block-${blockCounter}`,
-            block_index: blockCounter,
-            language,
-            content,
-            metadata: {
-                source_url: sourceUrl,
-                extraction_method: 'standard',
-            },
-            source_url: sourceUrl,
-        });
-        blockCounter++;
-    }
-    
-    // Pattern 2: Code blocks without explicit language class
-    const plainCodePattern = /<pre[^>]*>\s*<code[^>]*>([\s\S]*?)<\/code>\s*<\/pre>/gi;
-    
-    while ((match = plainCodePattern.exec(html)) !== null) {
-        const content = decodeHtmlEntities(match[1].trim());
-        
-        // Skip empty code blocks
-        if (!content) continue;
-        
-        pushBlock({
-            id: `${blockCounter}`,
-            document_id: '', // Will be set by DocumentManager
-            block_id: `block-${blockCounter}`,
-            block_index: blockCounter,
-            language: 'unknown',
-            content,
-            metadata: {
-                source_url: sourceUrl,
-                extraction_method: 'plain',
-            },
-            source_url: sourceUrl,
-        });
-        blockCounter++;
-    }
-    
-    // Pattern 3: Tabbed code blocks (common in documentation sites)
-    // Look for patterns like:
-    // <div class="tabs"><div class="tab" data-lang="javascript">...</div><div class="tab" data-lang="python">...</div></div>
-    const tabbedCodePattern = /<div[^>]*class[^>]*tab[^>]*>[\s\S]*?(?=<div[^>]*class[^>]*tab[^>]*>|<\/div>[\s\S]*?<\/div>)/gi;
-    
-    const tabContainerPattern = /<div[^>]*class[^>]*tabs?[^>]*>([\s\S]*?)<\/div>/gi;
-    let tabContainerMatch: RegExpExecArray | null;
-    
-    while ((tabContainerMatch = tabContainerPattern.exec(html)) !== null) {
-        const tabContainer = tabContainerMatch[1];
-        const tabs: Array<{ language: string; content: string }> = [];
-        
-        // Extract individual tabs with their content
-        // Pattern for tabs with data-lang attribute
-        const tabPattern = /<div[^>]*data-lang=["']([^"']+)["'][^>]*>([\s\S]*?)<\/div>/gi;
-        let tabMatch: RegExpExecArray | null;
-        
-        while ((tabMatch = tabPattern.exec(tabContainer)) !== null) {
-            const language = normalizeLanguageTag(tabMatch[1]);
-            const tabContent = tabMatch[2];
-            
-            // Extract code from tab content
-            const innerCodeMatch = /<pre[^>]*>\s*<code[^>]*>([\s\S]*?)<\/code>\s*<\/pre>/i.exec(tabContent);
-            if (innerCodeMatch) {
-                const content = decodeHtmlEntities(innerCodeMatch[1].trim());
-                if (content) {
-                    tabs.push({ language, content });
-                }
-            }
-        }
-        
-        // Create code blocks for each tab variant
-        for (const tab of tabs) {
-            pushBlock({
-                id: `${blockCounter}`,
-                document_id: '', // Will be set by DocumentManager
-                block_id: `tabbed-block-${blockCounter}`,
-                block_index: blockCounter,
-                language: tab.language,
-                content: tab.content,
-                metadata: {
-                    source_url: sourceUrl,
-                    extraction_method: 'tabbed',
-                    is_variant: true,
-                    variant_count: tabs.length,
-                },
-                source_url: sourceUrl,
-            });
-            blockCounter++;
-        }
-    }
-    
-    // Pattern 4: Code blocks with data-language attribute
-    const dataLangPattern = /<pre[^>]*data-language=["']([^"']+)["'][^>]*>([\s\S]*?)<\/pre>/gi;
-    
-    while ((match = dataLangPattern.exec(html)) !== null) {
-        const language = normalizeLanguageTag(match[1]);
-        const content = decodeHtmlEntities(match[2].trim());
-        
-        // Skip empty code blocks
-        if (!content) continue;
-        
-        pushBlock({
-            id: `${blockCounter}`,
-            document_id: '', // Will be set by DocumentManager
-            block_id: `block-${blockCounter}`,
-            block_index: blockCounter,
-            language,
-            content,
-            metadata: {
-                source_url: sourceUrl,
-                extraction_method: 'data-lang',
-            },
-            source_url: sourceUrl,
-        });
-        blockCounter++;
-    }
-    
-    // Pattern 5: Code blocks with data-lang attribute
-    const dataLangShortPattern = /<pre[^>]*data-lang=["']([^"']+)["'][^>]*>([\s\S]*?)<\/pre>/gi;
-    
-    while ((match = dataLangShortPattern.exec(html)) !== null) {
-        const language = normalizeLanguageTag(match[1]);
-        const content = decodeHtmlEntities(match[2].trim());
-        
-        // Skip empty code blocks
-        if (!content) continue;
-        
-        pushBlock({
-            id: `${blockCounter}`,
-            document_id: '', // Will be set by DocumentManager
-            block_id: `block-${blockCounter}`,
-            block_index: blockCounter,
-            language,
-            content,
-            metadata: {
-                source_url: sourceUrl,
-                extraction_method: 'data-lang-short',
-            },
-            source_url: sourceUrl,
-        });
-        blockCounter++;
-    }
-    
-    return codeBlocks;
-}
+export { extractHtmlCodeBlocks as extractCodeBlocks } from './html-extraction.js';
+export { normalizeLanguageTag } from './code-block-utils.js';

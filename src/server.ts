@@ -7,6 +7,7 @@ import { createLazyEmbeddingProvider } from './embedding-provider.js';
 import { DocumentManager } from './document-manager.js';
 import { resolveAiProviderSelection, searchDocumentWithAi } from './ai-search-provider.js';
 import { crawlDocumentation } from './documentation-crawler.js';
+import { extractHtmlContent, looksLikeHtml } from './html-extraction.js';
 
 // Initialize server
 const server = new FastMCP({
@@ -44,6 +45,10 @@ async function initializeDocumentManager() {
     return documentManager;
 }
 
+function normalizeContentType(contentType?: string | null): string {
+    return contentType ? contentType.split(';')[0].trim().toLowerCase() : '';
+}
+
 // Add document tool
 server.addTool({
     name: "add_document",
@@ -55,11 +60,47 @@ server.addTool({
     }), execute: async (args) => {
         try {
             const manager = await initializeDocumentManager();
-            const document = await manager.addDocument(
-                args.title,
-                args.content,
-                args.metadata || {}
+            const baseMetadata = args.metadata || {};
+            const metadata = { ...baseMetadata } as Record<string, any>;
+            const normalizedContentType = normalizeContentType(
+                (typeof metadata.contentType === 'string' && metadata.contentType)
+                || (typeof metadata.content_type === 'string' && metadata.content_type)
+                || (typeof metadata.mimeType === 'string' && metadata.mimeType)
+                || (typeof metadata['content-type'] === 'string' && metadata['content-type'])
             );
+            const isHtml = normalizedContentType === 'text/html'
+                || normalizedContentType === 'application/xhtml+xml'
+                || looksLikeHtml(args.content);
+
+            let title = args.title;
+            let content = args.content;
+            let codeBlocks: ReturnType<typeof extractHtmlContent>['codeBlocks'] = [];
+
+            if (isHtml) {
+                const sourceUrl = typeof metadata.source_url === 'string' ? metadata.source_url : undefined;
+                const extracted = extractHtmlContent(args.content, {
+                    sourceUrl,
+                    fallbackTitle: args.title,
+                });
+                title = extracted.title || args.title;
+                content = extracted.text || args.content;
+                codeBlocks = extracted.codeBlocks;
+
+                if (!metadata.contentType && !metadata.content_type) {
+                    metadata.contentType = normalizedContentType || 'text/html';
+                }
+            }
+
+            const document = await manager.addDocument(title, content, metadata);
+
+            if (codeBlocks.length > 0) {
+                await manager.addCodeBlocks(document.id, codeBlocks, {
+                    source: metadata.source,
+                    source_url: metadata.source_url,
+                    crawl_id: metadata.crawl_id,
+                    contentType: metadata.contentType || metadata.content_type || normalizedContentType,
+                });
+            }
             return `Document added successfully with ID: ${document.id}`;
         } catch (error) {
             throw new Error(`Failed to add document: ${error instanceof Error ? error.message : String(error)}`);
