@@ -516,7 +516,8 @@ export class DocumentIndex {
             lastUpdated: new Date().toISOString()
         };
 
-    await fse.writeJSON(this.indexFilePath, indexData, { spaces: 2 });
+        await fse.ensureDir(path.dirname(this.indexFilePath));
+        await fse.writeJSON(this.indexFilePath, indexData, { spaces: 2 });
     }
 
     private scheduleSaveIndex(): void {
