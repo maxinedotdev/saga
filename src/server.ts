@@ -198,7 +198,7 @@ server.addTool({
             const document = await manager.getOnlyContentDocument(args.id);
 
             if (!document) {
-                return `Document with ID ${args.id} not found.`;
+                throw new Error(`Document with ID '${args.id}' not found. Use 'list_documents' to get available document IDs.`);
             }
 
             return JSON.stringify(document, null, 2);
@@ -330,7 +330,7 @@ server.addTool({
             // Check if document exists first
             const document = await manager.getDocument(id);
             if (!document) {
-                return `Document not found: ${id}`;
+                throw new Error(`Document with ID '${id}' not found. Use 'list_documents' to get available document IDs.`);
             }
 
             // Delete the document
@@ -339,7 +339,7 @@ server.addTool({
             if (success) {
                 return `Document "${document.title}" (${id}) has been deleted successfully.`;
             } else {
-                return `Document not found or already deleted: ${id}`;
+                throw new Error(`Document with ID '${id}' not found or already deleted. Use 'list_documents' to get available document IDs.`);
             }
         } catch (error) {
             throw new Error(`Failed to delete document: ${error instanceof Error ? error.message : String(error)}`);
