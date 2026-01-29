@@ -4,36 +4,17 @@
  */
 
 import '../../__tests__/setup.js';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import assert from 'assert';
 import { LanceDBAdapter, createVectorDatabase } from '../lance-db.js';
 import { DocumentChunk, CodeBlock } from '../../types.js';
-
-// Test utilities
-const createTestChunk = (id: string, documentId: string, content: string, embeddings?: number[]): DocumentChunk => ({
-    id,
-    document_id: documentId,
-    chunk_index: 0,
-    content,
-    embeddings,
-    start_position: 0,
-    end_position: content.length,
-    metadata: { test: true }
-});
-
-const createTestEmbedding = (seed: number, dimensions: number = 384): number[] => {
-    const embedding: number[] = [];
-    for (let i = 0; i < dimensions; i++) {
-        // Deterministic pseudo-random values based on seed
-        const value = Math.sin(seed * i * 0.1) * Math.cos(seed * i * 0.05);
-        embedding.push(value);
-    }
-    // Normalize the embedding
-    const norm = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
-    return embedding.map(val => val / norm);
-};
+import {
+    createTestChunk,
+    createTestCodeBlock,
+    createTestEmbedding,
+    isLanceDbAvailable,
+    withVectorDb,
+    withTempDir
+} from '../../__tests__/test-utils.js';
 
 // Test data
 const testChunks: DocumentChunk[] = [
@@ -43,19 +24,6 @@ const testChunks: DocumentChunk[] = [
     createTestChunk('chunk4', 'doc2', 'Vector databases enable efficient similarity search.', createTestEmbedding(4)),
     createTestChunk('chunk5', 'doc3', 'Embeddings represent text as numerical vectors.', createTestEmbedding(5))
 ];
-
-// Code block test data
-const createTestCodeBlock = (id: string, documentId: string, blockId: string, language: string, content: string, embedding?: number[]): CodeBlock => ({
-    id,
-    document_id: documentId,
-    block_id: blockId,
-    block_index: 0,
-    language,
-    content,
-    embedding,
-    metadata: { test: true },
-    source_url: 'https://example.com'
-});
 
 const testCodeBlocks: CodeBlock[] = [
     createTestCodeBlock('cb1', 'doc1', 'block-1', 'javascript', 'const x = 1;\nconsole.log(x);', createTestEmbedding(10)),
@@ -71,18 +39,13 @@ const testCodeBlocks: CodeBlock[] = [
 async function testLanceDBAdapter() {
     console.log('\n=== Test 9.1: LanceDBAdapter ===');
     
-    // Check if LanceDB is available
-    try {
-        await import('@lancedb/lancedb');
-    } catch {
+    if (!(await isLanceDbAvailable())) {
         console.log('⊘ LanceDB not available, skipping LanceDBAdapter tests');
         console.log('⊘ Install @lancedb/lancedb package to run these tests: npm install @lancedb/lancedb');
         return;
     }
-    
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lance-test-'));
-    
-    try {
+
+    await withTempDir('lance-test-', async (tempDir) => {
         const lanceDB = new LanceDBAdapter(tempDir);
         
         // Test initialization
@@ -118,10 +81,7 @@ async function testLanceDBAdapter() {
         // Test close
         await lanceDB.close();
         console.log('✓ LanceDBAdapter tests passed');
-    } finally {
-        // Cleanup
-        fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+    });
 }
 
 /**
@@ -130,17 +90,12 @@ async function testLanceDBAdapter() {
 async function testFactoryFunction() {
     console.log('\n=== Test 9.2: Factory Function ===');
     
-    // Check if LanceDB is available
-    try {
-        await import('@lancedb/lancedb');
-    } catch {
+    if (!(await isLanceDbAvailable())) {
         console.log('⊘ LanceDB not available, skipping factory function tests');
         return;
     }
-    
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-test-'));
-    
-    try {
+
+    await withTempDir('factory-test-', async (tempDir) => {
         // Test factory function creates LanceDBAdapter
         const lanceDB = createVectorDatabase(tempDir);
         assert(lanceDB instanceof LanceDBAdapter, 'Should create LanceDBAdapter');
@@ -157,12 +112,9 @@ async function testFactoryFunction() {
         await lanceDB.close();
         
         await defaultDB.close();
-        
+
         console.log('✓ Factory function tests passed');
-    } finally {
-        // Cleanup
-        fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+    });
 }
 
 /**
@@ -171,17 +123,12 @@ async function testFactoryFunction() {
 async function testErrorHandling() {
     console.log('\n=== Test 9.3: Error Handling ===');
     
-    // Check if LanceDB is available
-    try {
-        await import('@lancedb/lancedb');
-    } catch {
+    if (!(await isLanceDbAvailable())) {
         console.log('⊘ LanceDB not available, skipping error handling tests');
         return;
     }
-    
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'error-test-'));
-    
-    try {
+
+    await withTempDir('error-test-', async (tempDir) => {
         // Test LanceDB handles operations before initialization
         const lanceDB = new LanceDBAdapter(tempDir);
         
@@ -209,12 +156,9 @@ async function testErrorHandling() {
         assert(results.length === 1, 'Should only return chunks with embeddings');
         
         await lanceDB.close();
-        
+
         console.log('✓ Error handling tests passed');
-    } finally {
-        // Cleanup
-        fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+    });
 }
 
 /**
@@ -223,20 +167,13 @@ async function testErrorHandling() {
 async function testCodeBlockExtractionAndStorage() {
     console.log('\n=== Test: Code Block Extraction and Storage ===');
 
-    try {
-        await import('@lancedb/lancedb');
-    } catch {
+    if (!(await isLanceDbAvailable())) {
         console.log('⊘ LanceDB not available, skipping code block tests');
         console.log('⊘ Install @lancedb/lancedb package to run these tests: npm install @lancedb/lancedb');
         return;
     }
 
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codeblock-test-'));
-
-    try {
-        const lanceDB = new LanceDBAdapter(tempDir);
-        await lanceDB.initialize();
-
+    await withVectorDb(async (lanceDB) => {
         // Test adding code blocks with multiple language variants
         await lanceDB.addCodeBlocks([testCodeBlocks[0], testCodeBlocks[1], testCodeBlocks[2]]);
 
@@ -264,11 +201,8 @@ async function testCodeBlockExtractionAndStorage() {
         const doc2CodeBlocks = await lanceDB.getCodeBlocksByDocument('doc2');
         assert(doc2CodeBlocks.length === 2, 'Should retrieve all code blocks for doc2');
 
-        await lanceDB.close();
         console.log('✓ Code block extraction and storage tests passed');
-    } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+    }, 'codeblock-test-');
 }
 
 /**
@@ -277,19 +211,12 @@ async function testCodeBlockExtractionAndStorage() {
 async function testCodeBlockSearchWithLanguageFiltering() {
     console.log('\n=== Test: Code Block Search with Language Filtering ===');
 
-    try {
-        await import('@lancedb/lancedb');
-    } catch {
+    if (!(await isLanceDbAvailable())) {
         console.log('⊘ LanceDB not available, skipping code block search tests');
         return;
     }
 
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codeblock-search-test-'));
-
-    try {
-        const lanceDB = new LanceDBAdapter(tempDir);
-        await lanceDB.initialize();
-
+    await withVectorDb(async (lanceDB) => {
         // Add test code blocks
         await lanceDB.addCodeBlocks(testCodeBlocks);
 
@@ -317,11 +244,8 @@ async function testCodeBlockSearchWithLanguageFiltering() {
         const emptyResults = await lanceDB.searchCodeBlocks(createTestEmbedding(10), 10, 'rust');
         assert(emptyResults.length === 0, 'Should return empty results for non-existent language');
 
-        await lanceDB.close();
         console.log('✓ Code block search with language filtering tests passed');
-    } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+    }, 'codeblock-search-test-');
 }
 
 /**
@@ -330,19 +254,12 @@ async function testCodeBlockSearchWithLanguageFiltering() {
 async function testCodeBlockMultiLanguageVariants() {
     console.log('\n=== Test: Code Block Multi-Language Variant Handling ===');
 
-    try {
-        await import('@lancedb/lancedb');
-    } catch {
+    if (!(await isLanceDbAvailable())) {
         console.log('⊘ LanceDB not available, skipping multi-language variant tests');
         return;
     }
 
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codeblock-multilang-test-'));
-
-    try {
-        const lanceDB = new LanceDBAdapter(tempDir);
-        await lanceDB.initialize();
-
+    await withVectorDb(async (lanceDB) => {
         // Add code blocks with same block_id but different languages (simulating tabbed code)
         const multiLangBlocks: CodeBlock[] = [
             createTestCodeBlock('ml1', 'doc1', 'tabbed-1', 'javascript', 'const x = 1;', createTestEmbedding(20)),
@@ -379,11 +296,8 @@ async function testCodeBlockMultiLanguageVariants() {
         const tabbedBlockResults = searchResults.filter(r => r.code_block.block_id === 'tabbed-1');
         assert(tabbedBlockResults.length > 0, 'Should return at least one variant in search results');
 
-        await lanceDB.close();
         console.log('✓ Code block multi-language variant handling tests passed');
-    } finally {
-        fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+    }, 'codeblock-multilang-test-');
 }
 
 /**

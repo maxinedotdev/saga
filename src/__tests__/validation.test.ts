@@ -6,20 +6,15 @@
 import './setup.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { DocumentManager } from '../document-manager.js';
-import { SearchEngine } from '../search-engine.js';
 import { createVectorDatabase, LanceDBAdapter } from '../vector-db/index.js';
 import { SimpleEmbeddingProvider } from '../embedding-provider.js';
-
-const getTempDir = (): string => {
-    return fs.mkdtempSync(path.join(os.tmpdir(), `test-${Date.now()}-`));
-};
+import { createTempDir, withBaseDir, withBaseDirAndDocumentManager, withBaseDirAndSearchEngine, withEnv } from './test-utils.js';
 
 async function testMigrationWithRealData() {
     console.log('\n=== Test 12.2: Migration with Real Data ===');
     
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mig-real-'));
+    const tempDir = createTempDir('mig-real-');
     const dataDir = path.join(tempDir, 'data');
     const lanceDir = path.join(tempDir, 'lancedb');
     
@@ -133,67 +128,58 @@ async function testMigrationWithRealData() {
 
 async function testMCPToolsWithLanceDB() {
     console.log('\n=== Test 12.3: MCP Tools with Lance DB ===');
-    
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-tools-'));
-    process.env.MCP_BASE_DIR = tempDir;
-    
-    try {
-        const vectorDB = new LanceDBAdapter(getTempDir());
-        await vectorDB.initialize();
-        
-        const documentManager = new DocumentManager(new SimpleEmbeddingProvider(), vectorDB);
-        const embeddingProvider = new SimpleEmbeddingProvider();
-        const searchEngine = new SearchEngine(documentManager, embeddingProvider);
-        
+
+    return await withBaseDirAndSearchEngine('mcp-tools-', async ({ baseDir, documentManager, searchEngine }) => {
+
         const doc1 = await documentManager.addDocument(
             'Test Document',
             'This is a test document for MCP tool validation.',
             { source: 'test' }
         );
         console.log('  ✓ add_document equivalent works');
-        
+
         const retrieved = await documentManager.getDocument(doc1.id);
         if (retrieved === null) throw new Error('Should retrieve document');
         if (retrieved.id !== doc1.id) throw new Error('ID mismatch');
         console.log('  ✓ get_document equivalent works');
-        
+
         const searchResults = await documentManager.searchDocuments(doc1.id, 'test document', 5);
         if (searchResults.length === 0) throw new Error('Should find search results');
         console.log('  ✓ search_documents equivalent works');
-        
+
         const allDocs = await documentManager.getAllDocuments();
         if (allDocs.length !== 1) throw new Error('Should list one document');
         console.log('  ✓ list_documents equivalent works');
-        
+
         const deleted = await documentManager.deleteDocument(doc1.id);
         if (!deleted) throw new Error('Should delete document');
         console.log('  ✓ delete_document equivalent works');
-        
-        const uploadsDir = path.join(tempDir, 'uploads');
+
+        const uploadsDir = path.join(baseDir, 'uploads');
         fs.mkdirSync(uploadsDir, { recursive: true });
         fs.writeFileSync(
             path.join(uploadsDir, 'test.txt'),
             'This is a test file for upload processing.'
         );
-        
+
         const processResult = await documentManager.processUploadsFolder();
         if (processResult.processed !== 1) throw new Error('Should process one file');
         console.log('  ✓ process_uploads equivalent works');
-        
+
         const uploadsFiles = await documentManager.listUploadsFiles();
         if (uploadsFiles.length < 0) throw new Error('Should list uploads files');
         console.log('  ✓ list_uploads_files equivalent works');
-        
+
         const doc2 = await documentManager.addDocument(
             'Search Test Document',
             'This document is for testing search functionality within documents.',
             { category: 'test' }
         );
-        
+
         const inDocResults = await searchEngine.searchDocument(doc2.id, 'search functionality', 5);
         if (inDocResults.length === 0) throw new Error('Should find results within document');
         console.log('  ✓ search_in_document equivalent works');
-        
+
         const doc3 = await documentManager.addDocument(
             'Crawl Doc 1',
             'Document from crawl session.',
@@ -204,108 +190,91 @@ async function testMCPToolsWithLanceDB() {
             'Another document from crawl session.',
             { crawl_id: 'test-session' }
         );
-        
+
         const crawlResult = await documentManager.deleteCrawlSession('test-session');
         if (crawlResult.deleted !== 2) throw new Error('Should delete all documents in crawl session');
         console.log('  ✓ delete_crawl_session equivalent works');
-        
-        await vectorDB.close();
-        
+
         console.log('✓ All MCP tools work with vector database');
         return true;
-    } finally {
-        process.env.MCP_BASE_DIR = undefined;
-        fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+    });
 }
 
 async function testEmbeddingProviders() {
     console.log('\n=== Test 12.4: Embedding Providers ===');
-    
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'embeddings-'));
-    process.env.MCP_BASE_DIR = tempDir;
-    
-    try {
-        console.log('  Testing with SimpleEmbeddingProvider (Transformers.js)...');
-        const simpleProvider = new SimpleEmbeddingProvider();
-        const simpleEmbedding = await simpleProvider.generateEmbedding('test text');
-        if (simpleEmbedding.length === 0) throw new Error('Should generate embedding');
-        if (!simpleProvider.isAvailable()) throw new Error('Should be available');
-        console.log(`  ✓ SimpleEmbeddingProvider works (${simpleEmbedding.length} dimensions)`);
-        
-        const simpleVectorDB = new LanceDBAdapter(getTempDir());
-        await simpleVectorDB.initialize();
-        const simpleDocManager = new DocumentManager(simpleProvider, simpleVectorDB);
-        
-        const simpleDoc = await simpleDocManager.addDocument(
-            'Simple Provider Test',
-            'Testing document with SimpleEmbeddingProvider.',
-            { provider: 'transformers' }
-        );
-        if (!simpleDoc.chunks[0].embeddings || simpleDoc.chunks[0].embeddings.length === 0) {
-            throw new Error('Should have embeddings');
-        }
-        console.log('  ✓ Document created with SimpleEmbeddingProvider');
-        
-        await simpleVectorDB.close();
-        
-        const openaiKey = process.env.MCP_EMBEDDING_API_KEY || process.env.OPENAI_API_KEY;
-        if (openaiKey) {
-            console.log('  Testing with OpenAI provider...');
-            process.env.MCP_EMBEDDING_PROVIDER = 'openai';
-            process.env.MCP_EMBEDDING_API_KEY = openaiKey;
-            
-            const { createEmbeddingProvider } = await import('../embedding-provider.js');
-            const openaiProvider = await createEmbeddingProvider();
-            
-            try {
-                const openaiEmbedding = await openaiProvider.generateEmbedding('test text');
-                if (openaiEmbedding.length === 0) throw new Error('Should generate embedding');
-                console.log(`  ✓ OpenAI provider works (${openaiEmbedding.length} dimensions)`);
-                
-                const openaiVectorDB = new LanceDBAdapter(getTempDir());
-                await openaiVectorDB.initialize();
-                const openaiDocManager = new DocumentManager(openaiProvider, openaiVectorDB);
-                
-                const openaiDoc = await openaiDocManager.addDocument(
-                    'OpenAI Provider Test',
-                    'Testing document with OpenAI provider.',
-                    { provider: 'openai' }
-                );
-                if (!openaiDoc.chunks[0].embeddings || openaiDoc.chunks[0].embeddings.length === 0) {
-                    throw new Error('Should have embeddings');
-                }
-                console.log('  ✓ Document created with OpenAI provider');
-                
-                await openaiVectorDB.close();
-            } catch (error) {
-                console.warn('  ⚠ OpenAI provider test failed (API error):', error instanceof Error ? error.message : String(error));
+
+    return await withBaseDir('embeddings-', async () => {
+        return await withEnv({ MCP_EMBEDDING_PROVIDER: undefined }, async () => {
+            console.log('  Testing with SimpleEmbeddingProvider (Transformers.js)...');
+            const simpleProvider = new SimpleEmbeddingProvider();
+            const simpleEmbedding = await simpleProvider.generateEmbedding('test text');
+            if (simpleEmbedding.length === 0) throw new Error('Should generate embedding');
+            if (!simpleProvider.isAvailable()) throw new Error('Should be available');
+            console.log(`  ✓ SimpleEmbeddingProvider works (${simpleEmbedding.length} dimensions)`);
+
+            const simpleVectorDB = new LanceDBAdapter(createTempDir('vector-test-'));
+            await simpleVectorDB.initialize();
+            const simpleDocManager = new DocumentManager(simpleProvider, simpleVectorDB);
+
+            const simpleDoc = await simpleDocManager.addDocument(
+                'Simple Provider Test',
+                'Testing document with SimpleEmbeddingProvider.',
+                { provider: 'transformers' }
+            );
+            if (!simpleDoc.chunks[0].embeddings || simpleDoc.chunks[0].embeddings.length === 0) {
+                throw new Error('Should have embeddings');
             }
-        } else {
-            console.log('  ⊘ OpenAI API key not configured, skipping OpenAI provider test');
-            console.log('    Set MCP_EMBEDDING_API_KEY or OPENAI_API_KEY to test OpenAI provider');
-        }
-        
-        console.log('✓ Embedding providers work correctly');
-        return true;
-    } finally {
-        process.env.MCP_BASE_DIR = undefined;
-        process.env.MCP_EMBEDDING_PROVIDER = undefined;
-        fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+            console.log('  ✓ Document created with SimpleEmbeddingProvider');
+
+            await simpleVectorDB.close();
+
+            const openaiKey = process.env.MCP_EMBEDDING_API_KEY || process.env.OPENAI_API_KEY;
+            if (openaiKey) {
+                console.log('  Testing with OpenAI provider...');
+                process.env.MCP_EMBEDDING_PROVIDER = 'openai';
+                process.env.MCP_EMBEDDING_API_KEY = openaiKey;
+
+                const { createEmbeddingProvider } = await import('../embedding-provider.js');
+                const openaiProvider = await createEmbeddingProvider();
+
+                try {
+                    const openaiEmbedding = await openaiProvider.generateEmbedding('test text');
+                    if (openaiEmbedding.length === 0) throw new Error('Should generate embedding');
+                    console.log(`  ✓ OpenAI provider works (${openaiEmbedding.length} dimensions)`);
+
+                    const openaiVectorDB = new LanceDBAdapter(createTempDir('vector-test-'));
+                    await openaiVectorDB.initialize();
+                    const openaiDocManager = new DocumentManager(openaiProvider, openaiVectorDB);
+
+                    const openaiDoc = await openaiDocManager.addDocument(
+                        'OpenAI Provider Test',
+                        'Testing document with OpenAI provider.',
+                        { provider: 'openai' }
+                    );
+                    if (!openaiDoc.chunks[0].embeddings || openaiDoc.chunks[0].embeddings.length === 0) {
+                        throw new Error('Should have embeddings');
+                    }
+                    console.log('  ✓ Document created with OpenAI provider');
+
+                    await openaiVectorDB.close();
+                } catch (error) {
+                    console.warn('  ⚠ OpenAI provider test failed (API error):', error instanceof Error ? error.message : String(error));
+                }
+            } else {
+                console.log('  ⊘ OpenAI API key not configured, skipping OpenAI provider test');
+                console.log('    Set MCP_EMBEDDING_API_KEY or OPENAI_API_KEY to test OpenAI provider');
+            }
+
+            console.log('✓ Embedding providers work correctly');
+            return true;
+        });
+    });
 }
 
 async function testDocumentationCrawlerIntegration() {
     console.log('\n=== Test 12.6: Documentation Crawler Integration ===');
-    
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'crawler-'));
-    process.env.MCP_BASE_DIR = tempDir;
-    
-    try {
-        const vectorDB = new LanceDBAdapter(getTempDir());
-        await vectorDB.initialize();
-        const docManager = new DocumentManager(new SimpleEmbeddingProvider(), vectorDB);
-        
+
+    return await withBaseDirAndDocumentManager('crawler-', async ({ documentManager }) => {
         const crawledDocs = [
             {
                 title: 'API Reference',
@@ -326,45 +295,40 @@ async function testDocumentationCrawlerIntegration() {
                 metadata: { source: 'crawler', crawl_id: 'test-crawl' }
             }
         ];
-        
+
         for (const crawledDoc of crawledDocs) {
-            const doc = await docManager.addDocument(
+            const doc = await documentManager.addDocument(
                 crawledDoc.title,
                 crawledDoc.content,
                 crawledDoc.metadata
             );
             console.log(`  ✓ Crawled document added: ${doc.id}`);
         }
-        
-        const allDocs = await docManager.getAllDocuments();
+
+        const allDocs = await documentManager.getAllDocuments();
         if (allDocs.length !== 3) throw new Error('Should have 3 crawled documents');
         console.log('  ✓ All crawled documents added');
-        
-        const searchResults = await docManager.searchDocuments(
+
+        const searchResults = await documentManager.searchDocuments(
             allDocs[0].id,
             'documentation',
             5
         );
         if (searchResults.length === 0) throw new Error('Should find results in crawled documents');
         console.log('  ✓ Search works on crawled documents');
-        
-        const deleteResult = await docManager.deleteCrawlSession('test-crawl');
+
+        const deleteResult = await documentManager.deleteCrawlSession('test-crawl');
         if (deleteResult.deleted !== 3) throw new Error('Should delete all crawled documents');
         if (deleteResult.errors.length !== 0) throw new Error('Should have no errors');
         console.log('  ✓ Crawl session deletion works');
-        
-        const remainingDocs = await docManager.getAllDocuments();
+
+        const remainingDocs = await documentManager.getAllDocuments();
         if (remainingDocs.length !== 0) throw new Error('All crawled documents should be deleted');
         console.log('  ✓ Crawled documents deleted correctly');
-        
-        await vectorDB.close();
-        
+
         console.log('✓ Documentation crawler integration works correctly');
         return true;
-    } finally {
-        process.env.MCP_BASE_DIR = undefined;
-        fs.rmSync(tempDir, { recursive: true, force: true });
-    }
+    });
 }
 
 async function runValidationTests() {

@@ -4,11 +4,9 @@
  */
 
 import './setup.js';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import { LanceDBAdapter, createVectorDatabase } from '../vector-db/index.js';
+import { LanceDBAdapter } from '../vector-db/index.js';
 import { DocumentChunk } from '../types.js';
+import { createTestChunk, createTestEmbedding, withVectorDb } from './test-utils.js';
 
 interface BenchmarkResult {
     operation: string;
@@ -34,27 +32,6 @@ const benchmarkResults: BenchmarkStats = {
     memoryUsage: []
 };
 
-const createTestChunk = (id: string, document_id: string, content: string, embeddings?: number[]): DocumentChunk => ({
-    id,
-    document_id,
-    chunk_index: 0,
-    content,
-    embeddings,
-    start_position: 0,
-    end_position: content.length,
-    metadata: { benchmark: true }
-});
-
-const createTestEmbedding = (seed: number, dimensions: number = 384): number[] => {
-    const embedding: number[] = [];
-    for (let i = 0; i < dimensions; i++) {
-        const value = Math.sin(seed * i * 0.1) * Math.cos(seed * i * 0.05);
-        embedding.push(value);
-    }
-    const norm = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
-    return embedding.map(val => val / norm);
-};
-
 const createTestDocuments = (count: number): DocumentChunk[] => {
     const chunks: DocumentChunk[] = [];
     for (let i = 0; i < count; i++) {
@@ -65,7 +42,8 @@ const createTestDocuments = (count: number): DocumentChunk[] => {
             `It contains sample text to simulate real document content. ` +
             `Performance testing is important for understanding system capabilities. ` +
             `Vector databases enable efficient similarity search operations.`,
-            createTestEmbedding(i)
+            createTestEmbedding(i),
+            { benchmark: true }
         );
         chunks.push(chunk);
     }
@@ -143,38 +121,32 @@ async function benchmarkDocumentCounts() {
         
         try {
             await import('@lancedb/lancedb');
-            const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `lance-bench-${count}-`));
-            
             console.log(`  \n  LanceDB:`);
-            const lanceDB = new LanceDBAdapter(tempDir);
-            await lanceDB.initialize();
-            
-            const addLanceTime = await runBenchmark(
-                'addChunks',
-                'lance',
-                count,
-                3,
-                async () => {
-                    await lanceDB.addChunks(chunks);
-                }
-            );
-            console.log(`    Add: ${addLanceTime.toFixed(2)}ms`);
-            
-            await benchmarkSearchPerformance(lanceDB, 'lance', chunks);
-            
-            const removeLanceTime = await runBenchmark(
-                'removeChunks',
-                'lance',
-                count,
-                1,
-                async () => {
-                    await lanceDB.removeChunks('bench-doc-0');
-                }
-            );
-            console.log(`    Remove: ${removeLanceTime.toFixed(2)}ms`);
-            
-            await lanceDB.close();
-            fs.rmSync(tempDir, { recursive: true, force: true });
+            await withVectorDb(async (lanceDB) => {
+                const addLanceTime = await runBenchmark(
+                    'addChunks',
+                    'lance',
+                    count,
+                    3,
+                    async () => {
+                        await lanceDB.addChunks(chunks);
+                    }
+                );
+                console.log(`    Add: ${addLanceTime.toFixed(2)}ms`);
+
+                await benchmarkSearchPerformance(lanceDB, 'lance', chunks);
+
+                const removeLanceTime = await runBenchmark(
+                    'removeChunks',
+                    'lance',
+                    count,
+                    1,
+                    async () => {
+                        await lanceDB.removeChunks('bench-doc-0');
+                    }
+                );
+                console.log(`    Remove: ${removeLanceTime.toFixed(2)}ms`);
+            }, `lance-bench-${count}-`);
         } catch {
             console.log(`    ⊘ LanceDB not available, skipping`);
         }
@@ -202,38 +174,33 @@ async function measurePerformanceAtScale() {
         try {
             await import('@lancedb/lancedb');
             
-            const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lance-scale-'));
-            const lanceDB = new LanceDBAdapter(tempDir);
-            await lanceDB.initialize();
-            
-            addTime = await runBenchmark(
-                'addChunks',
-                'lance',
-                count,
-                3,
-                async () => {
-                    await lanceDB.addChunks(chunks);
-                }
-            );
-            
-            searchTime = await runBenchmark(
-                'search',
-                'lance',
-                count,
-                5,
-                async () => {
-                    await lanceDB.search(createTestEmbedding(Math.random() * count), 5);
-                }
-            );
-            
-            // Get min times from results
-            const addResults = benchmarkResults.addChunks.filter(r => r.documentCount === count && r.dbType === 'lance');
-            const searchResults = benchmarkResults.search.filter(r => r.documentCount === count && r.dbType === 'lance');
-            if (addResults.length > 0) minAddTime = addResults[addResults.length - 1].minTimeMs;
-            if (searchResults.length > 0) minSearchTime = searchResults[searchResults.length - 1].minTimeMs;
-            
-            await lanceDB.close();
-            fs.rmSync(tempDir, { recursive: true, force: true });
+            await withVectorDb(async (lanceDB) => {
+                addTime = await runBenchmark(
+                    'addChunks',
+                    'lance',
+                    count,
+                    3,
+                    async () => {
+                        await lanceDB.addChunks(chunks);
+                    }
+                );
+
+                searchTime = await runBenchmark(
+                    'search',
+                    'lance',
+                    count,
+                    5,
+                    async () => {
+                        await lanceDB.search(createTestEmbedding(Math.random() * count), 5);
+                    }
+                );
+
+                // Get min times from results
+                const addResults = benchmarkResults.addChunks.filter(r => r.documentCount === count && r.dbType === 'lance');
+                const searchResults = benchmarkResults.search.filter(r => r.documentCount === count && r.dbType === 'lance');
+                if (addResults.length > 0) minAddTime = addResults[addResults.length - 1].minTimeMs;
+                if (searchResults.length > 0) minSearchTime = searchResults[searchResults.length - 1].minTimeMs;
+            }, 'lance-scale-');
         } catch {
             console.log(`  │ ${count.toString().padEnd(10)} │ N/A          │ N/A             │ N/A             │`);
             continue;
@@ -272,17 +239,12 @@ async function measureMemoryUsage() {
         try {
             await import('@lancedb/lancedb');
             
-            const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lance-memory-'));
-            const lanceDB = new LanceDBAdapter(tempDir);
-            await lanceDB.initialize();
-            
-            const lanceBefore = measureMemory();
-            await lanceDB.addChunks(chunks);
-            const lanceAfter = measureMemory();
-            lanceUsage = lanceAfter - lanceBefore;
-            
-            await lanceDB.close();
-            fs.rmSync(tempDir, { recursive: true, force: true });
+            await withVectorDb(async (lanceDB) => {
+                const lanceBefore = measureMemory();
+                await lanceDB.addChunks(chunks);
+                const lanceAfter = measureMemory();
+                lanceUsage = lanceAfter - lanceBefore;
+            }, 'lance-memory-');
         } catch {
             lanceUsage = 0;
         }
