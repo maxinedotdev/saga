@@ -82,7 +82,7 @@ export class DocumentManager {
                 this.useVectorDb = false;
                 this.vectorDatabase = null;
                 this.vectorDbInitPromise = null;
-                throw error;
+                // Gracefully degrade - server continues without vector search capabilities
             });
         }
     }
