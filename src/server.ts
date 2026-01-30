@@ -15,6 +15,8 @@ const server = new FastMCP({
     version: "1.0.0",
 });
 
+console.error('[Server] FastMCP server initialized');
+
 // Initialize with default embedding provider
 let documentManager: DocumentManager;
 
@@ -111,6 +113,7 @@ server.addTool({
         }
     },
 });
+console.error('[Server] Tool registered: add_document');
 
 // Crawl documentation tool
 server.addTool({
@@ -144,6 +147,7 @@ server.addTool({
         }
     },
 });
+console.error('[Server] Tool registered: crawl_documentation');
 
 // Search documents tool
 server.addTool({
@@ -189,6 +193,7 @@ server.addTool({
         }
     },
 });
+console.error('[Server] Tool registered: search_documents');
 
 // Get document tool
 server.addTool({
@@ -211,6 +216,7 @@ server.addTool({
         }
     },
 });
+console.error('[Server] Tool registered: get_document');
 
 // List documents tool
 server.addTool({

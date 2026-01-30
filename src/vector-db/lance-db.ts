@@ -1,10 +1,11 @@
 /**
  * Vector Database Implementation
- * 
+ *
  * Provides an abstraction layer for vector storage and retrieval with
  * support for both LanceDB and in-memory storage as fallback.
  */
 
+import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { DocumentChunk, SearchResult, CodeBlock, CodeBlockSearchResult } from "../types.js";
@@ -75,11 +76,113 @@ export class LanceDBAdapter implements VectorDatabase {
         this.tableName = tableName;
     }
 
+    // Lock file path
+    private getLockFilePath(): string {
+        return path.join(this.dbPath, ".lancedb-init.lock");
+    }
+
+    // Acquire lock with timeout
+    private async acquireLock(timeoutMs: number = 30000): Promise<boolean> {
+        const lockFile = this.getLockFilePath();
+        const pid = process.pid;
+        const startTime = Date.now();
+        let retries = 0;
+        
+        while (Date.now() - startTime < timeoutMs) {
+            try {
+                // Try to create lock file exclusively
+                const fd = fs.openSync(lockFile, "wx");
+                fs.writeSync(fd, JSON.stringify({ pid, timestamp: Date.now() }));
+                fs.closeSync(fd);
+                logger.info(`[PID:${pid}] Acquired LanceDB initialization lock`);
+                return true;
+            } catch (err) {
+                // Lock exists, check if stale
+                try {
+                    const lockData = JSON.parse(fs.readFileSync(lockFile, "utf8"));
+                    const lockAge = Date.now() - lockData.timestamp;
+                    
+                    // Stale lock detection (5 minutes)
+                    if (lockAge > 300000) {
+                        logger.warn(`[PID:${pid}] Detected stale lock from PID:${lockData.pid}, removing`);
+                        fs.unlinkSync(lockFile);
+                        continue; // Retry immediately
+                    }
+                    
+                    logger.debug(`[PID:${pid}] Waiting for lock held by PID:${lockData.pid}`);
+                } catch (readErr) {
+                    // Lock file may have been released
+                }
+                
+                retries++;
+                // Wait before retry (exponential backoff)
+                await new Promise(r => setTimeout(r, Math.min(1000, Math.pow(2, retries) * 100)));
+            }
+        }
+        
+        logger.error(`[PID:${pid}] Failed to acquire lock within ${timeoutMs}ms`);
+        return false;
+    }
+
+    // Release lock
+    private releaseLock(): void {
+        const lockFile = this.getLockFilePath();
+        const pid = process.pid;
+        try {
+            if (fs.existsSync(lockFile)) {
+                fs.unlinkSync(lockFile);
+                logger.info(`[PID:${pid}] Released LanceDB initialization lock`);
+            }
+        } catch (err) {
+            logger.warn(`[PID:${pid}] Failed to release lock: ${err}`);
+        }
+    }
+
+    // Helper for retry with exponential backoff
+    private async withRetry<T>(
+        operation: () => Promise<T>,
+        operationName: string,
+        maxRetries: number = 5,
+        baseDelayMs: number = 100
+    ): Promise<T> {
+        const pid = process.pid;
+        
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                return await operation();
+            } catch (error) {
+                const isCommitConflict = error instanceof Error &&
+                    (error.message.includes("commit conflict") ||
+                     error.message.includes("Transaction"));
+                
+                if (!isCommitConflict || attempt === maxRetries) {
+                    throw error;
+                }
+                
+                const delay = Math.min(5000, baseDelayMs * Math.pow(2, attempt));
+                logger.warn(`[PID:${pid}] ${operationName} conflict on attempt ${attempt + 1}, retrying in ${delay}ms...`);
+                await new Promise(r => setTimeout(r, delay));
+            }
+        }
+        
+        throw new Error(`[PID:${pid}] ${operationName} failed after ${maxRetries} retries`);
+    }
+
     async initialize(): Promise<void> {
         const startTime = Date.now();
+        const pid = process.pid;
 
         if (this.initialized) {
             return;
+        }
+
+        // Log process ID for debugging multi-process scenarios
+        logger.info(`[PID:${pid}] Initializing LanceDB at ${this.dbPath}`);
+
+        // Acquire lock before initialization
+        const lockAcquired = await this.acquireLock(30000);
+        if (!lockAcquired) {
+            throw new Error(`[PID:${pid}] Failed to acquire LanceDB initialization lock`);
         }
 
         try {
@@ -88,7 +191,7 @@ export class LanceDBAdapter implements VectorDatabase {
             // Try to open existing table - will be created on first addChunks if it doesn't exist
             try {
                 this.table = await this.db.openTable(this.tableName);
-                logger.info(`Opened existing table: ${this.tableName}`);
+                logger.info(`[PID:${pid}] Opened existing table: ${this.tableName}`);
 
                 // Check if table has data and create vector index if needed
                 const count = await this.table.countRows();
@@ -109,14 +212,14 @@ export class LanceDBAdapter implements VectorDatabase {
                         });
 
                         await Promise.race([indexCreationPromise, timeoutPromise]);
-                        logger.info("Created vector index on 'embedding' column");
+                        logger.info(`[PID:${pid}] Created vector index on 'embedding' column`);
                     } catch (error) {
                         // Index might already exist or timed out, which is fine
                         const isTimeout = error instanceof Error && error.message.includes('timed out');
                         if (isTimeout) {
-                            console.warn('[LanceDBAdapter] Index creation timed out, continuing without index (search will still work but may be slower)');
+                            console.warn(`[PID:${pid}] Index creation timed out, continuing without index (search will still work but may be slower)`);
                         } else {
-                            logger.debug("Vector index already exists or creation failed:", error);
+                            logger.debug(`[PID:${pid}] Vector index already exists or creation failed:`, error);
                         }
                     }
                 }
@@ -128,7 +231,7 @@ export class LanceDBAdapter implements VectorDatabase {
             // Try to open code_blocks table - will be created on first addCodeBlocks if it doesn't exist
             try {
                 this.codeBlocksTable = await this.db.openTable(this.codeBlocksTableName);
-                logger.info(`Opened existing code_blocks table: ${this.codeBlocksTableName}`);
+                logger.info(`[PID:${pid}] Opened existing code_blocks table: ${this.codeBlocksTableName}`);
 
                 // Check if code_blocks table has data and create indexes if needed
                 const codeBlocksCount = await this.codeBlocksTable.countRows();
@@ -137,16 +240,16 @@ export class LanceDBAdapter implements VectorDatabase {
                     // Create scalar indexes on document_id and language
                     try {
                         await this.codeBlocksTable.createIndex("document_id", { config: Index.btree() });
-                        logger.info("Created scalar index on 'document_id' column");
+                        logger.info(`[PID:${pid}] Created scalar index on 'document_id' column`);
                     } catch (error) {
-                        logger.debug("Scalar index on document_id already exists or creation failed:", error);
+                        logger.debug(`[PID:${pid}] Scalar index on document_id already exists or creation failed:`, error);
                     }
 
                     try {
                         await this.codeBlocksTable.createIndex("language", { config: Index.btree() });
-                        logger.info("Created scalar index on 'language' column");
+                        logger.info(`[PID:${pid}] Created scalar index on 'language' column`);
                     } catch (error) {
-                        logger.debug("Scalar index on language already exists or creation failed:", error);
+                        logger.debug(`[PID:${pid}] Scalar index on language already exists or creation failed:`, error);
                     }
 
                     // Create vector index on embedding
@@ -165,13 +268,13 @@ export class LanceDBAdapter implements VectorDatabase {
                         });
 
                         await Promise.race([indexCreationPromise, timeoutPromise]);
-                        logger.info("Created vector index on code_blocks 'embedding' column");
+                        logger.info(`[PID:${pid}] Created vector index on code_blocks 'embedding' column`);
                     } catch (error) {
                         const isTimeout = error instanceof Error && error.message.includes('timed out');
                         if (isTimeout) {
-                            console.warn('[LanceDBAdapter] Code blocks index creation timed out, continuing without index');
+                            console.warn(`[PID:${pid}] Code blocks index creation timed out, continuing without index`);
                         } else {
-                            logger.debug("Code blocks vector index already exists or creation failed:", error);
+                            logger.debug(`[PID:${pid}] Code blocks vector index already exists or creation failed:`, error);
                         }
                     }
                 }
@@ -181,10 +284,13 @@ export class LanceDBAdapter implements VectorDatabase {
             }
 
             this.initialized = true;
-            logger.info("LanceDB initialized successfully");
+            logger.info(`[PID:${pid}] LanceDB initialized successfully in ${Date.now() - startTime}ms`);
         } catch (error) {
-            logger.error("Failed to initialize LanceDB:", error);
+            logger.error(`[PID:${pid}] Failed to initialize LanceDB:`, error);
             throw new Error(`LanceDB initialization failed: ${error}`);
+        } finally {
+            // Always release lock
+            this.releaseLock();
         }
     }
 
@@ -193,10 +299,12 @@ export class LanceDBAdapter implements VectorDatabase {
             throw new Error("LanceDB not initialized");
         }
 
-        try {
+        const pid = process.pid;
+
+        return this.withRetry(async () => {
             const filteredChunks = chunks.filter(chunk => chunk.embeddings && chunk.embeddings.length > 0);
             if (filteredChunks.length === 0) {
-                logger.warn("No chunks with embeddings provided, skipping LanceDB add");
+                logger.warn(`[PID:${pid}] No chunks with embeddings provided, skipping LanceDB add`);
                 return;
             }
 
@@ -207,7 +315,7 @@ export class LanceDBAdapter implements VectorDatabase {
             // Create table on first data insertion if it doesn't exist
             if (!this.table) {
                 const orderedChunks = this.prioritizeChunkForSchemaInference(filteredChunks, metadataSchemaKeys);
-                logger.info(`Creating table '${this.tableName}' with ${filteredChunks.length} initial chunks`);
+                logger.info(`[PID:${pid}] Creating table '${this.tableName}' with ${filteredChunks.length} initial chunks`);
                 const data = orderedChunks.map(chunk => ({
                     id: chunk.id,
                     document_id: chunk.document_id,
@@ -238,13 +346,13 @@ export class LanceDBAdapter implements VectorDatabase {
                     });
 
                     await Promise.race([indexCreationPromise, timeoutPromise]);
-                    logger.info("Created vector index on 'embedding' column");
+                    logger.info(`[PID:${pid}] Created vector index on 'embedding' column`);
                 } catch (error) {
                     const isTimeout = error instanceof Error && error.message.includes('timed out');
                     if (isTimeout) {
-                        console.warn('[LanceDBAdapter] Index creation timed out, continuing without index (search will still work but may be slower)');
+                        console.warn(`[PID:${pid}] Index creation timed out, continuing without index (search will still work but may be slower)`);
                     } else {
-                        logger.debug("Vector index creation failed (may already exist):", error);
+                        logger.debug(`[PID:${pid}] Vector index creation failed (may already exist):`, error);
                     }
                 }
             } else {
@@ -263,11 +371,8 @@ export class LanceDBAdapter implements VectorDatabase {
                 await this.table.add(data);
             }
             
-            logger.debug(`Added ${filteredChunks.length} chunks to LanceDB`);
-        } catch (error) {
-            logger.error("Failed to add chunks to LanceDB:", error);
-            throw new Error(`Failed to add chunks: ${error}`);
-        }
+            logger.debug(`[PID:${pid}] Added ${filteredChunks.length} chunks to LanceDB`);
+        }, "addChunks");
     }
 
     async removeChunks(documentId: string): Promise<void> {
@@ -277,17 +382,16 @@ export class LanceDBAdapter implements VectorDatabase {
         
         if (!this.table) {
             // Table doesn't exist yet, nothing to remove
-            logger.debug(`No table exists, skipping removal for document: ${documentId}`);
+            const pid = process.pid;
+            logger.debug(`[PID:${pid}] No table exists, skipping removal for document: ${documentId}`);
             return;
         }
 
-        try {
+        return this.withRetry(async () => {
+            const pid = process.pid;
             await this.table.delete(`document_id = '${documentId}'`);
-            logger.debug(`Removed chunks for document: ${documentId}`);
-        } catch (error) {
-            logger.error(`Failed to remove chunks for document ${documentId}:`, error);
-            throw new Error(`Failed to remove chunks: ${error}`);
-        }
+            logger.debug(`[PID:${pid}] Removed chunks for document: ${documentId}`);
+        }, "removeChunks");
     }
 
     async search(queryEmbedding: number[], limit: number, filter?: string): Promise<SearchResult[]> {
@@ -297,7 +401,8 @@ export class LanceDBAdapter implements VectorDatabase {
         
         if (!this.table) {
             // Table doesn't exist yet, return empty results
-            logger.debug("No table exists, returning empty search results");
+            const pid = process.pid;
+            logger.debug(`[PID:${pid}] No table exists, returning empty search results`);
             return [];
         }
 
@@ -330,7 +435,8 @@ export class LanceDBAdapter implements VectorDatabase {
                 score: row._distance ? (2 - row._distance) / 2 : 1
             })).sort((a: SearchResult, b: SearchResult) => b.score - a.score);
         } catch (error) {
-            logger.error("Failed to search LanceDB:", error);
+            const pid = process.pid;
+            logger.error(`[PID:${pid}] Failed to search LanceDB:`, error);
             throw new Error(`Failed to search: ${error}`);
         }
     }
@@ -343,7 +449,8 @@ export class LanceDBAdapter implements VectorDatabase {
             const listSize = embeddingField?.type?.listSize;
             return typeof listSize === 'number' ? listSize : null;
         } catch (error) {
-            logger.warn('Failed to resolve embedding dimension from LanceDB schema:', error);
+            const pid = process.pid;
+            logger.warn(`[PID:${pid}] Failed to resolve embedding dimension from LanceDB schema:`, error);
             return null;
         }
     }
@@ -366,7 +473,8 @@ export class LanceDBAdapter implements VectorDatabase {
             this.metadataSchemaKeys = new Set(children.map((child: any) => child.name));
             return this.metadataSchemaKeys;
         } catch (error) {
-            logger.warn('Failed to resolve metadata schema keys from LanceDB schema:', error);
+            const pid = process.pid;
+            logger.warn(`[PID:${pid}] Failed to resolve metadata schema keys from LanceDB schema:`, error);
             return null;
         }
     }
@@ -511,18 +619,20 @@ export class LanceDBAdapter implements VectorDatabase {
                 metadata: row.metadata
             };
         } catch (error) {
-            logger.error(`Failed to get chunk ${chunkId}:`, error);
+            const pid = process.pid;
+            logger.error(`[PID:${pid}] Failed to get chunk ${chunkId}:`, error);
             return null;
         }
     }
 
     async close(): Promise<void> {
+        const pid = process.pid;
         if (this.db) {
             try {
                 await this.db.close();
-                logger.info("LanceDB connection closed");
+                logger.info(`[PID:${pid}] LanceDB connection closed`);
             } catch (error) {
-                logger.error("Error closing LanceDB:", error);
+                logger.error(`[PID:${pid}] Error closing LanceDB:`, error);
             }
         }
         this.initialized = false;
@@ -541,10 +651,12 @@ export class LanceDBAdapter implements VectorDatabase {
             throw new Error("LanceDB not initialized");
         }
 
-        try {
+        const pid = process.pid;
+
+        return this.withRetry(async () => {
             // Create code_blocks table on first data insertion if it doesn't exist
             if (!this.codeBlocksTable) {
-                logger.info(`Creating code_blocks table with ${codeBlocks.length} initial code blocks`);
+                logger.info(`[PID:${pid}] Creating code_blocks table with ${codeBlocks.length} initial code blocks`);
                 this.codeBlocksTable = await this.db.createTable(this.codeBlocksTableName, codeBlocks.map(block => ({
                     id: block.id,
                     document_id: block.document_id,
@@ -559,23 +671,23 @@ export class LanceDBAdapter implements VectorDatabase {
 
                 // Create indexes after initial data is added
                 try {
-                    console.error('[LanceDBAdapter] Creating scalar indexes on initial code_blocks data...');
+                    logger.info(`[PID:${pid}] Creating scalar indexes on initial code_blocks data...`);
                     await this.codeBlocksTable.createIndex("document_id", { config: Index.btree() });
-                    logger.info("Created scalar index on 'document_id' column");
+                    logger.info(`[PID:${pid}] Created scalar index on 'document_id' column`);
                 } catch (error) {
-                    logger.debug("Scalar index creation failed (may already exist):", error);
+                    logger.debug(`[PID:${pid}] Scalar index creation failed (may already exist):`, error);
                 }
 
                 try {
                     await this.codeBlocksTable.createIndex("language", { config: Index.btree() });
-                    logger.info("Created scalar index on 'language' column");
+                    logger.info(`[PID:${pid}] Created scalar index on 'language' column`);
                 } catch (error) {
-                    logger.debug("Scalar index on language creation failed (may already exist):", error);
+                    logger.debug(`[PID:${pid}] Scalar index on language creation failed (may already exist):`, error);
                 }
 
                 // Create vector index with timeout
                 try {
-                    console.error('[LanceDBAdapter] Creating vector index on initial code_blocks data with 30 second timeout...');
+                    logger.info(`[PID:${pid}] Creating vector index on initial code_blocks data with 30 second timeout...`);
                     const indexCreationPromise = this.codeBlocksTable.createIndex("embedding", {
                         type: "ivf_pq",
                         metricType: "cosine",
@@ -590,14 +702,13 @@ export class LanceDBAdapter implements VectorDatabase {
                     });
 
                     await Promise.race([indexCreationPromise, timeoutPromise]);
-                    logger.info("Created vector index on code_blocks 'embedding' column");
-                    console.error('[LanceDBAdapter] Code_blocks vector index created successfully');
+                    logger.info(`[PID:${pid}] Created vector index on code_blocks 'embedding' column`);
                 } catch (error) {
                     const isTimeout = error instanceof Error && error.message.includes('timed out');
                     if (isTimeout) {
-                        console.warn('[LanceDBAdapter] Code blocks index creation timed out, continuing without index');
+                        console.warn(`[PID:${pid}] Code blocks index creation timed out, continuing without index`);
                     } else {
-                        logger.debug("Code blocks vector index creation failed (may already exist):", error);
+                        logger.debug(`[PID:${pid}] Code blocks vector index creation failed (may already exist):`, error);
                     }
                 }
             } else {
@@ -617,11 +728,8 @@ export class LanceDBAdapter implements VectorDatabase {
                 await this.codeBlocksTable.add(data);
             }
 
-            logger.debug(`Added ${codeBlocks.length} code blocks to LanceDB`);
-        } catch (error) {
-            logger.error("Failed to add code blocks to LanceDB:", error);
-            throw new Error(`Failed to add code blocks: ${error}`);
-        }
+            logger.debug(`[PID:${pid}] Added ${codeBlocks.length} code blocks to LanceDB`);
+        }, "addCodeBlocks");
     }
 
     /**
