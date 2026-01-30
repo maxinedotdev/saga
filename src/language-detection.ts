@@ -61,7 +61,8 @@ export function detectLanguages(text: string, confidenceThreshold = 0.2): string
         }
 
         // Check if confidence meets threshold
-        const score = result.score || 0;
+        const scores = result.getScores();
+        const score = scores[result.language] || 0;
         if (score < confidenceThreshold) {
             return ['unknown'];
         }

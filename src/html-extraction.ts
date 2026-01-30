@@ -1,4 +1,5 @@
-import { load, type Cheerio, type CheerioAPI, type Element } from 'cheerio';
+import { load, type Cheerio, type CheerioAPI } from 'cheerio';
+import type { Element } from 'domhandler';
 import { createHash } from 'crypto';
 import type { CodeBlock } from './types.js';
 import { normalizeLanguageTag } from './code-block-utils.js';
@@ -65,13 +66,13 @@ export function looksLikeHtml(content: string): boolean {
 }
 
 export function decodeHtmlEntities(value: string): string {
-    const $ = load(value, { decodeEntities: true });
+    const $ = load(value);
     return $.root().text();
 }
 
 export function extractHtmlContent(html: string, options: HtmlExtractionOptions = {}): HtmlExtractionResult {
     const sourceUrl = options.sourceUrl;
-    const $ = load(html, { decodeEntities: true });
+    const $ = load(html);
 
     const links = extractLinks($, sourceUrl);
     const codeBlocks = extractHtmlCodeBlocksFromDom($, sourceUrl);
@@ -96,7 +97,7 @@ export function extractHtmlContent(html: string, options: HtmlExtractionOptions 
 }
 
 export function extractHtmlCodeBlocks(html: string, sourceUrl?: string): CodeBlock[] {
-    const $ = load(html, { decodeEntities: true });
+    const $ = load(html);
     return extractHtmlCodeBlocksFromDom($, sourceUrl);
 }
 
@@ -106,7 +107,7 @@ function extractHtmlCodeBlocksFromDom($: CheerioAPI, sourceUrl?: string): CodeBl
     let tabGroupCounter = 0;
     const seenContent = new Map<string, number>();
     const seenContentLang = new Set<string>();
-    const usedElements = new Set<Element>();
+    const usedElements = new Set<Element | undefined>();
 
     const pushBlock = (block: CodeBlock) => {
         const contentHash = hashCodeBlockContent(block.content);
@@ -243,13 +244,18 @@ function extractHtmlCodeBlocksFromDom($: CheerioAPI, sourceUrl?: string): CodeBl
 function findTabContainer($: CheerioAPI, node: Cheerio<Element>): Element | null {
     const candidates = node.parents().addBack();
     for (const el of candidates.toArray()) {
-        const $el = $(el);
+        // Filter to only Element nodes (not Document, Text, etc.)
+        if (el.type !== 'tag' && el.type !== 'script' && el.type !== 'style') {
+            continue;
+        }
+        const element = el as Element;
+        const $el = $(element);
         const role = $el.attr('role');
         if (role === 'tablist') {
-            return el;
+            return element;
         }
         if ($el.attr('data-tabs') !== undefined || $el.attr('data-tablist') !== undefined) {
-            return el;
+            return element;
         }
         const classAttr = $el.attr('class');
         if (!classAttr) {
@@ -257,7 +263,7 @@ function findTabContainer($: CheerioAPI, node: Cheerio<Element>): Element | null
         }
         const tokens = classAttr.split(/\s+/).filter(Boolean);
         if (tokens.some(token => token === 'tab' || token === 'tabs' || token.startsWith('tab-') || token.startsWith('tabs-'))) {
-            return el;
+            return element;
         }
     }
 
@@ -384,7 +390,8 @@ function resolveUrl(value: string, base?: string): string | null {
 }
 
 function extractText($: CheerioAPI): string {
-    const root = $('body').length > 0 ? $('body') : $.root();
+    const body = $('body');
+    const root: Cheerio<Element> = body.length > 0 ? body : $.root() as unknown as Cheerio<Element>;
 
     root.find('br').replaceWith('\n');
     root.find(BLOCK_BREAK_SELECTORS).each((_, el) => {

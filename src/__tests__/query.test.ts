@@ -349,6 +349,7 @@ async function testDocumentSearchFields() {
                 crawl_id: 'tutorial-crawl-123'
             }
         );
+        if (!doc) throw new Error('Failed to add document');
 
         // Query and verify search fields are used
         const result = await documentManager.query('python data science', { limit: 10 });

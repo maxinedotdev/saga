@@ -335,18 +335,21 @@ async function testQueryWithDocumentDeletion() {
             'This document will be deleted for testing query behavior after deletion.',
             { source: 'upload', tags: ['delete', 'test'] }
         );
+        if (!doc1) throw new Error('Failed to add document');
 
         const doc2 = await documentManager.addDocument(
             'Document to Keep',
             'This document will be kept for testing query behavior after deletion.',
             { source: 'upload', tags: ['keep', 'test'] }
         );
+        if (!doc2) throw new Error('Failed to add document');
 
         const doc3 = await documentManager.addDocument(
             'Another Document',
             'Another document for testing.',
             { source: 'upload', tags: ['test'] }
         );
+        if (!doc3) throw new Error('Failed to add document');
 
         // Query before deletion
         const beforeDelete = await documentManager.query('document', { limit: 10 });

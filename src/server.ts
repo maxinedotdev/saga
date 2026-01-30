@@ -63,10 +63,10 @@ server.addTool({
             const baseMetadata = args.metadata || {};
             const metadata = { ...baseMetadata } as Record<string, any>;
             const normalizedContentType = normalizeContentType(
-                (typeof metadata.contentType === 'string' && metadata.contentType)
-                || (typeof metadata.content_type === 'string' && metadata.content_type)
-                || (typeof metadata.mimeType === 'string' && metadata.mimeType)
-                || (typeof metadata['content-type'] === 'string' && metadata['content-type'])
+                (typeof metadata.contentType === 'string' ? metadata.contentType : undefined)
+                || (typeof metadata.content_type === 'string' ? metadata.content_type : undefined)
+                || (typeof metadata.mimeType === 'string' ? metadata.mimeType : undefined)
+                || (typeof metadata['content-type'] === 'string' ? metadata['content-type'] : undefined)
             );
             const isHtml = normalizedContentType === 'text/html'
                 || normalizedContentType === 'application/xhtml+xml'
@@ -92,6 +92,10 @@ server.addTool({
             }
 
             const document = await manager.addDocument(title, content, metadata);
+
+            if (!document) {
+                throw new Error('Failed to add document - document is null');
+            }
 
             if (codeBlocks.length > 0) {
                 await manager.addCodeBlocks(document.id, codeBlocks, {

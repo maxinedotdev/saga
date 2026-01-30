@@ -136,6 +136,7 @@ async function testMCPToolsWithLanceDB() {
             'This is a test document for MCP tool validation.',
             { source: 'test' }
         );
+        if (!doc1) throw new Error('Failed to add document');
         console.log('  ✓ add_document equivalent works');
 
         const retrieved = await documentManager.getDocument(doc1.id);
@@ -175,6 +176,7 @@ async function testMCPToolsWithLanceDB() {
             'This document is for testing search functionality within documents.',
             { category: 'test' }
         );
+        if (!doc2) throw new Error('Failed to add document');
 
         const inDocResults = await searchEngine.searchDocument(doc2.id, 'search functionality', 5);
         if (inDocResults.length === 0) throw new Error('Should find results within document');
@@ -221,6 +223,7 @@ async function testEmbeddingProviders() {
                 'Testing document with SimpleEmbeddingProvider.',
                 { provider: 'transformers' }
             );
+            if (!simpleDoc) throw new Error('Failed to add document');
             if (!simpleDoc.chunks[0].embeddings || simpleDoc.chunks[0].embeddings.length === 0) {
                 throw new Error('Should have embeddings');
             }
@@ -251,6 +254,7 @@ async function testEmbeddingProviders() {
                         'Testing document with OpenAI provider.',
                         { provider: 'openai' }
                     );
+                    if (!openaiDoc) throw new Error('Failed to add document');
                     if (!openaiDoc.chunks[0].embeddings || openaiDoc.chunks[0].embeddings.length === 0) {
                         throw new Error('Should have embeddings');
                     }
@@ -302,6 +306,7 @@ async function testDocumentationCrawlerIntegration() {
                 crawledDoc.content,
                 crawledDoc.metadata
             );
+            if (!doc) throw new Error('Failed to add document');
             console.log(`  ✓ Crawled document added: ${doc.id}`);
         }
 

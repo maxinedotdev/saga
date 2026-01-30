@@ -4,27 +4,49 @@ A TypeScript-based [Model Context Protocol (MCP)](https://modelcontextprotocol.i
 
 ## Installation
 
-### Via npx (Recommended)
+### Local Development
 
-No installation required - run directly with npx:
-
-```bash
-npx -y @maxinedotdev/saga
-```
-
-### Via npm
+Since the package is not yet published to npm, clone and link locally:
 
 ```bash
-npm install -g @maxinedotdev/saga
-```
-
-### From Source
-
-```bash
+# Clone and build
 git clone https://github.com/maxinedotdev/saga.git
 cd saga
 npm install
 npm run build
+
+# Link globally so it's available in other MCP consumers
+npm link
+```
+
+After linking, the `saga` command will be available globally across all VSCode windows.
+
+### Direct Path Method (Alternative)
+
+If you prefer not to use `npm link`, you can reference the server directly in your MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "saga": {
+      "command": "node",
+      "args": ["/full/path/to/saga/dist/server.js"],
+      "env": {
+        "MCP_BASE_DIR": "~/.saga",
+        "MCP_EMBEDDING_PROVIDER": "transformers",
+        "MCP_EMBEDDING_MODEL": "Xenova/all-MiniLM-L6-v2"
+      }
+    }
+  }
+}
+```
+
+### Via npm (When Published)
+
+> **Note:** This method requires the package to be published to npm first.
+
+```bash
+npm install -g @maxinedotdev/saga
 ```
 
 ## Quick Start
@@ -37,8 +59,7 @@ Add to your MCP client configuration (e.g., Claude Desktop):
 {
   "mcpServers": {
     "documentation": {
-      "command": "npx",
-      "args": ["-y", "@maxinedotdev/saga"],
+      "command": "saga",
       "env": {
         "MCP_BASE_DIR": "~/.saga",
         "MCP_EMBEDDING_PROVIDER": "transformers",
@@ -48,6 +69,8 @@ Add to your MCP client configuration (e.g., Claude Desktop):
   }
 }
 ```
+
+> **Note:** If you didn't run `npm link` during installation, use the direct path method shown in the Installation section above.
 
 ### Basic Usage
 
