@@ -169,7 +169,9 @@ export const seedDocuments = async (
             doc.content,
             doc.metadata ?? {}
         );
-        documents.push(created);
+        if (created) {
+            documents.push(created);
+        }
     }
 
     return { documents, ids: documents.map(doc => doc.id) };
@@ -188,7 +190,9 @@ export const addDocumentsRange = async (
             doc.content,
             doc.metadata ?? {}
         );
-        ids.push(created.id);
+        if (created) {
+            ids.push(created.id);
+        }
     }
     return ids;
 };

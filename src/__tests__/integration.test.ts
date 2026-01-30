@@ -20,6 +20,7 @@ async function testDocumentManagerIntegration() {
             { source: 'test' }
         );
 
+        if (!doc1) throw new Error('Document should be created');
         if (!doc1.id) throw new Error('Document should have ID');
         if (doc1.title !== 'Test Document 1') throw new Error('Title mismatch');
         if (doc1.chunks.length === 0) throw new Error('Document should have chunks');
@@ -32,12 +33,14 @@ async function testDocumentManagerIntegration() {
             'Machine learning models use embeddings to represent text as vectors.',
             { source: 'test' }
         );
+        if (!doc2) throw new Error('Document 2 should be created');
 
         const doc3 = await documentManager.addDocument(
             'Test Document 3',
             'Vector databases enable efficient similarity search for large datasets.',
             { source: 'test' }
         );
+        if (!doc3) throw new Error('Document 3 should be created');
 
         const retrieved = await documentManager.getDocument(doc1.id);
         if (retrieved === null) throw new Error('Should retrieve document');
@@ -72,6 +75,7 @@ async function testDocumentManagerIntegration() {
                 `Content for document ${i} in crawl session.`,
                 { crawl_id: 'test-crawl-1' }
             );
+            if (!doc) throw new Error(`Crawl document ${i} should be created`);
             crawlDocs.push(doc.id);
         }
 
@@ -98,18 +102,21 @@ async function testSearchEngineIntegration() {
             'Artificial intelligence is a branch of computer science that aims to create intelligent machines.',
             { category: 'ai' }
         );
+        if (!doc1) throw new Error('Document 1 should be created');
 
         const doc2 = await documentManager.addDocument(
             'Machine Learning Basics',
             'Machine learning is a subset of AI that enables systems to learn from data.',
             { category: 'ml' }
         );
+        if (!doc2) throw new Error('Document 2 should be created');
 
         const doc3 = await documentManager.addDocument(
             'Deep Learning',
             'Deep learning uses neural networks with multiple layers to learn complex patterns.',
             { category: 'dl' }
         );
+        if (!doc3) throw new Error('Document 3 should be created');
 
         const inDocResults = await searchEngine.searchDocument(doc1.id, 'intelligent machines', 5);
         if (inDocResults.length === 0) throw new Error('Should find results within document');

@@ -1,690 +1,148 @@
 # MCP Documentation Server
 
-A TypeScript-based [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that provides local-first document management and semantic search using embeddings. The server exposes a collection of MCP tools and uses on-disk persistence, an in-memory index, caching, and LanceDB vector storage.
+A TypeScript-based [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for local-first document management and semantic search using embeddings. Features LanceDB vector storage, web crawling, and optional LLM integration.
 
-## LLM-assisted analysis (optional)
+## Installation
 
-Optional integration with LLM providers for document analysis and summarization. Supports OpenAI-compatible endpoints such as LM Studio (local) or synthetic.new (remote).
+### Via npx (Recommended)
 
-### Capabilities
-- LLM search via `search_documents_with_ai`
-- Natural-language queries and summaries over document content
-- Context window retrieval for surrounding chunks
+No installation required - run directly with npx:
 
+```bash
+npx -y @maxinedotdev/saga
+```
 
-## Core capabilities
+### Via npm
 
-### Search and analysis
-- Query-first document discovery with hybrid ranking (vector-first with keyword fallback)
-- LLM search using the configured provider (optional)
-- Semantic search using embeddings plus in-memory keyword index
-- Context window retrieval for surrounding chunks
+```bash
+npm install -g @maxinedotdev/saga
+```
 
-### Performance and optimization
-- O(1) document lookup and keyword index through `DocumentIndex`
-- LanceDB vector storage (default): disk-based vector search with HNSW indexing for larger datasets
-- LRU `EmbeddingCache` to avoid recomputing embeddings and speed up repeated queries
-- Parallel chunking and batch processing to accelerate ingestion of large documents
-- Streaming file reader to process large files without high memory usage
-- Automatic migration of existing JSON documents to LanceDB on first use
+### From Source
 
-### File management
-- Copy-based storage with backup preservation
-- Complete deletion removes JSON files and associated originals
-- Local-only storage; all data resides in `~/.saga/`
+```bash
+git clone https://github.com/maxinedotdev/saga.git
+cd saga
+npm install
+npm run build
+```
 
 ## Quick Start
 
-### Configure an MCP client
+### Configure an MCP Client
 
-Example configuration for an MCP client (e.g., Claude Desktop):
+Add to your MCP client configuration (e.g., Claude Desktop):
 
 ```json
 {
   "mcpServers": {
     "documentation": {
       "command": "npx",
-      "args": [
-        "-y",
-        "@maxinedotdev/saga"
-      ],
+      "args": ["-y", "@maxinedotdev/saga"],
       "env": {
-            "MCP_BASE_DIR": "/path/to/workspace",  // Optional, custom data directory (default: ~/.saga)
-            "MCP_LANCE_DB_PATH": "~/.data/lancedb",  // Optional, custom LanceDB path (default: {dataDir}/lancedb)
-            "MCP_VECTOR_DB": "lance",  // Optional, "lance" or "false" to disable vector DB
-            "MCP_VECTOR_DB_ENABLED": "true",  // Optional alias for enabling/disabling vector DB
-            "MCP_EMBEDDING_PROVIDER": "transformers",  // Optional, "transformers" or "openai"
-            "MCP_EMBEDDING_MODEL": "Xenova/all-MiniLM-L6-v2",
-            "MCP_EMBEDDING_BASE_URL": "http://127.0.0.1:1234",  // Optional, OpenAI-compatible embeddings base URL
-            "MCP_EMBEDDING_API_KEY": "your-api-key-here",  // Optional, required for remote embeddings
-            "MCP_AI_BASE_URL": "http://127.0.0.1:1234",  // Optional, OpenAI-compatible base URL (LM Studio / synthetic.new)
-            "MCP_AI_MODEL": "ministral-3-8b-instruct-2512",  // Optional, defaults based on base URL
-            "MCP_AI_API_KEY": "your-api-key-here",  // Optional, required for synthetic.new
-            "MCP_CRAWL_TIMEOUT_MS": "15000",  // Optional, per-request crawl timeout
-            "MCP_CRAWL_MAX_RESPONSE_BYTES": "5242880",  // Optional, max crawl response size
-            "MCP_CRAWL_REQUEST_DELAY_MS": "0",  // Optional, delay between crawl requests
+        "MCP_BASE_DIR": "~/.saga",
+        "MCP_EMBEDDING_PROVIDER": "transformers",
+        "MCP_EMBEDDING_MODEL": "Xenova/all-MiniLM-L6-v2"
       }
     }
   }
 }
 ```
 
-### Basic workflow
+### Basic Usage
 
-- Add documents using the `add_document` tool or by placing `.txt`, `.md`, or `.pdf` files into the uploads folder and calling `process_uploads`.
-- Use `query` for query-first document discovery to find relevant documents efficiently.
-- Search documents with `search_documents` to get ranked chunk hits.
-- Use `get_context_window` to fetch neighboring chunks and provide LLMs with richer context.
+1. **Add documents**: Use `add_document` tool or place `.txt`/`.md` files in the uploads folder and call `process_uploads`
+2. **Search**: Use `query` for semantic document discovery
+3. **Analyze**: Use `search_documents` for chunk-level search or `search_documents_with_ai` for LLM-powered analysis (requires LLM configuration)
 
-## Query-First Document Discovery
+## Features
 
-The server now supports query-first document discovery through the `query` tool, which provides a more efficient way to find relevant documents compared to browsing through all documents with `list_documents`.
+- **Semantic Search**: Vector-based search with LanceDB and HNSW indexing
+- **Query-First Discovery**: Find relevant documents quickly with hybrid ranking (vector + keyword fallback)
+- **Web Crawling**: Crawl public documentation with `crawl_documentation`
+- **LLM Integration**: Optional AI-powered analysis via OpenAI-compatible providers (LM Studio, synthetic.new)
+- **Performance**: LRU caching, parallel processing, streaming file reads
+- **Local-First**: All data stored in `~/.saga/` - no external services required
 
-### How It Works
+## Available Tools
 
-The `query` tool uses a hybrid ranking strategy that combines vector search with keyword fallback:
+### Document Management
+- `add_document` - Add a document with title, content, and metadata
+- `list_documents` - List documents with pagination
+- `get_document` - Retrieve full document by ID
+- `delete_document` - Remove a document and its chunks
+- `query` - Query-first document discovery with semantic ranking
 
-1. **Vector Search First**: Performs semantic search using embeddings to find documents with similar content
-2. **Score Aggregation**: Groups search results by document ID and calculates average relevance scores
-3. **Keyword Fallback**: If vector search returns insufficient results, falls back to keyword search using the in-memory index
-4. **Ranking**: Returns documents ranked by relevance score (vector results first, then keyword results)
+### File Processing
+- `process_uploads` - Convert files in uploads folder to documents
+- `get_uploads_path` - Get the absolute uploads folder path
+- `list_uploads_files` - List files in uploads folder
 
-### Query vs. list_documents
+### Search & Analysis
+- `search_documents` - Semantic search within documents (chunk-level)
+- `search_documents_with_ai` - LLM-powered analysis (requires provider config)
+- `get_context_window` - Get neighboring chunks for context
+- `crawl_documentation` - Crawl public docs from a seed URL
+- `delete_crawl_session` - Remove all documents from a crawl session
 
-**Use `query` when:**
-- You have a specific topic or question in mind
-- You want to find the most relevant documents quickly
-- You need semantic search capabilities
-- You want to filter results by metadata (tags, source, crawl_id, etc.)
+## Configuration
 
-**Use `list_documents` when:**
-- You need to browse all documents in the knowledge base
-- You want to see pagination-based listings
-- You're exploring the document collection without a specific query
-- You need document counts and basic metadata
+Configure via environment variables:
 
-### Usage Examples
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `MCP_BASE_DIR` | Data storage directory | `~/.saga` |
+| `MCP_EMBEDDING_PROVIDER` | `transformers` or `openai` | `transformers` |
+| `MCP_EMBEDDING_MODEL` | Embedding model name | `Xenova/all-MiniLM-L6-v2` |
+| `MCP_EMBEDDING_BASE_URL` | OpenAI-compatible base URL | - |
+| `MCP_AI_BASE_URL` | LLM provider URL (LM Studio/synthetic.new) | - |
+| `MCP_AI_MODEL` | LLM model name | Provider default |
+| `MCP_AI_API_KEY` | API key for remote providers | - |
+| `MCP_TAG_GENERATION_ENABLED` | Auto-generate tags with AI | `false` |
+| `MCP_SIMILARITY_THRESHOLD` | Min similarity score (0.0-1.0) | `0.3` |
 
-**Basic query:**
+### LLM Provider Examples
 
-```json
-{
-  "tool": "query",
-  "arguments": {
-    "query": "machine learning algorithms",
-    "limit": 5
-  }
-}
-```
-
-**Query with filters:**
-
-```json
-{
-  "tool": "query",
-  "arguments": {
-    "query": "database optimization",
-    "limit": 10,
-    "filters": {
-      "tags": ["performance", "sql"],
-      "source": "upload"
-    }
-  }
-}
-```
-
-**Query with pagination:**
-
-```json
-{
-  "tool": "query",
-  "arguments": {
-    "query": "react hooks",
-    "limit": 10,
-    "offset": 20
-  }
-}
-```
-
-**Query for crawled documents:**
-
-```json
-{
-  "tool": "query",
-  "arguments": {
-    "query": "API authentication",
-    "filters": {
-      "source": "crawl",
-      "crawl_id": "your-crawl-id"
-    },
-    "limit": 5
-  }
-}
-```
-
-### Migration Guide: From list_documents to query
-
-**Before (using list_documents):**
-```json
-{
-  "tool": "list_documents",
-  "arguments": {
-    "limit": 50,
-    "include_metadata": true,
-    "include_preview": true
-  }
-}
-// Then manually review all documents to find relevant ones
-```
-
-**After (using query):**
-```json
-{
-  "tool": "query",
-  "arguments": {
-    "query": "your topic here",
-    "limit": 10,
-    "include_metadata": true
-  }
-}
-// Get only the most relevant documents directly
-```
-
-**Benefits of migration:**
-- Faster document discovery (no need to browse all documents)
-- Semantic understanding of your query
-- Automatic relevance ranking
-- Reduced bandwidth and processing overhead
-- Better scalability with large document collections
-
-### Hybrid Ranking Strategy
-
-The query tool employs a sophisticated hybrid ranking approach:
-
-1. **Vector Search**: Uses embeddings to find semantically similar documents
-   - Calculates cosine similarity between query and document chunks
-   - Aggregates chunk scores at the document level
-   - Applies similarity threshold filtering (configurable via `MCP_SIMILARITY_THRESHOLD`)
-
-2. **Keyword Fallback**: Activates when vector search returns insufficient results
-   - Searches document titles, tags, and indexed keywords
-   - Provides complementary results for exact matches
-   - Ensures comprehensive coverage
-
-3. **Result Merging**: Combines vector and keyword results
-   - Vector results ranked first (higher relevance)
-   - Keyword results appended (lower relevance score)
-   - Deduplicates documents across both result sets
-
-### Performance Benefits
-
-The query-first approach delivers significant performance advantages:
-
-- **Reduced I/O**: Only retrieves metadata for relevant documents, not full content
-- **Vector Database Optimization**: Leverages LanceDB's HNSW indexing for fast similarity search
-- **In-Memory Indexing**: Uses DocumentIndex for O(1) keyword lookups
-- **Efficient Pagination**: Supports large document collections with minimal overhead
-- **Scalability**: Performance remains consistent as document count grows
-
-### Optional Tag Generation
-
-The server can automatically generate tags for documents using AI providers, enhancing discoverability.
-
-**Configuration:**
-
+**LM Studio (local)**:
 ```env
-# Enable automatic tag generation
-MCP_TAG_GENERATION_ENABLED=true
-
-# Use generated tags in query search (recommended)
-MCP_GENERATED_TAGS_IN_QUERY=true
+MCP_AI_BASE_URL=http://127.0.0.1:1234
+MCP_AI_MODEL=ministral-3-8b-instruct-2512
 ```
 
-**How it works:**
-1. When a document is added, tags are generated asynchronously in the background
-2. Tags are stored in `metadata.tags_generated` field
-3. The query tool automatically includes generated tags when filtering by tags
-4. Generated tags enhance search relevance without requiring manual tagging
-
-**Example usage with generated tags:**
-
-```json
-{
-  "tool": "query",
-  "arguments": {
-    "query": "web development",
-    "filters": {
-      "tags": ["frontend", "javascript"]
-    }
-  }
-}
-// Will match documents with both manually set tags and AI-generated tags
-```
-
-**Supported AI providers for tag generation:**
-- OpenAI-compatible (local/remote): Requires `MCP_AI_BASE_URL` and `MCP_AI_MODEL`
-
-### Backward Compatibility
-
-The `query` tool is fully backward compatible with existing functionality:
-
-- All existing tools continue to work as before
-- `list_documents` remains available for browsing workflows
-- Existing documents without generated tags work correctly
-- Migration to query-first discovery is optional and incremental
-- No changes required to existing document storage format
-
-## Exposed MCP tools
-
-The server exposes several tools (validated with Zod schemas) for document lifecycle and search:
-
-### Document management
-- `add_document` — Add a document (title, content, metadata)
-- `list_documents` — List documents with pagination; metadata/preview are optional
-- `get_document` — Retrieve a full document by id
-- `delete_document` — Remove a document, its chunks, and associated original files
-- `delete_crawl_session` — Remove all documents created by a crawl session
-- `query` — Query-first document discovery with hybrid ranking and metadata filtering
-
-### File processing
-- `process_uploads` — Convert files in uploads folder into documents (chunking + embeddings + backup preservation)
-- `get_uploads_path` — Returns the absolute uploads folder path
-- `list_uploads_files` — Lists files in uploads folder
-
-### Documentation crawling
-- `crawl_documentation` — Crawl public docs from a seed URL with depth/page limits and robots.txt compliance
-
-### Search and analysis
-- `search_documents_with_ai` — LLM search using the configured provider (requires provider configuration)
-- `search_documents` — Semantic search within a document (returns chunk hits and LLM hint)
-- `get_context_window` — Return a window of chunks around a target chunk index
-
-## Configuration & environment variables
-
-Configure behavior via environment variables. Important options:
-
-### Vector Database Configuration
-- `MCP_LANCE_DB_PATH` — custom path for LanceDB storage (default: `{dataDir}/lancedb`).
-
-**LanceDB characteristics**:
-- Disk-based vector search with HNSW indexing
-- Scales well as the dataset grows
-- Lower memory usage during queries
-- Metadata filtering support
-- Automatic migration of existing JSON documents on first use
-- Local-first storage (no external server required)
-
-### General Configuration
-- `MCP_BASE_DIR` — base directory for data storage (default: `~/.saga`). Supports `~` expansion for the home directory.
-- `MCP_EMBEDDING_PROVIDER` — embedding provider selection: `transformers` or `openai` (optional; defaults to `transformers`).
-- `MCP_EMBEDDING_MODEL` — embedding model name. Defaults to `Xenova/all-MiniLM-L6-v2` for Transformers.js or `text-embedding-nomic-embed-text-v1.5` for LM Studio.
-- `MCP_EMBEDDING_BASE_URL` — OpenAI-compatible embeddings base URL (required for `openai`, e.g. `http://127.0.0.1:1234`).
-- `MCP_EMBEDDING_API_KEY` — OpenAI-compatible embeddings API key (required for remote embeddings).
-- `MCP_AI_BASE_URL` — OpenAI-compatible base URL (required, e.g. `http://127.0.0.1:1234` or `https://api.synthetic.new/openai/v1`).
-- `MCP_AI_MODEL` — OpenAI-compatible model name (optional; defaults based on base URL).
-- `MCP_AI_API_KEY` — OpenAI-compatible API key (required for synthetic.new, optional for local LM Studio).
-- `MCP_AI_MAX_CONTEXT_CHUNKS` — Max chunks included in LLM prompt (default: `6`).
-- `MCP_INDEXING_ENABLED` — enable/disable the `DocumentIndex` (true/false). Default: `true`.
-- `MCP_CACHE_SIZE` — LRU embedding cache size (integer). Default: `1000`.
-- `MCP_PARALLEL_ENABLED` — enable parallel chunking (true/false). Default: `true`.
-- `MCP_MAX_WORKERS` — number of parallel workers for chunking/indexing. Default: `4`.
-- `MCP_STREAMING_ENABLED` — enable streaming reads for large files. Default: `true`.
-- `MCP_STREAM_CHUNK_SIZE` — streaming buffer size in bytes. Default: `65536` (64KB).
-- `MCP_STREAM_FILE_SIZE_LIMIT` — threshold (bytes) to switch to streaming path. Default: `10485760` (10MB).
-- `MCP_TAG_GENERATION_ENABLED` — enable automatic tag generation using AI provider (true/false). Default: `false`.
-- `MCP_GENERATED_TAGS_IN_QUERY` — use AI-generated tags in query search filters (true/false). Default: `false`.
-- `MCP_SIMILARITY_THRESHOLD` — minimum similarity score for vector search results (0.0-1.0). Default: `0.3`.
-
-## LLM provider setup
-
-- **LM Studio** (local): set `MCP_AI_BASE_URL=http://127.0.0.1:1234`. Default model is `ministral-3-8b-instruct-2512` unless `MCP_AI_MODEL` overrides it.
-- **synthetic.new** (remote): set `MCP_AI_BASE_URL=https://api.synthetic.new/openai/v1` and `MCP_AI_API_KEY`. Default model is `glm-4.7` unless `MCP_AI_MODEL` overrides it.
-
-## LLM provider validation
-
-- Start the server with the provider env vars configured.
-- Use `list_documents` (with `limit`/`offset`) to obtain a document ID.
-- Call `search_documents_with_ai` with a query and verify JSON output contains `search_results` and `relevant_sections`.
-
-## Embedding provider validation
-
-- Set `MCP_EMBEDDING_PROVIDER=openai` and `MCP_EMBEDDING_BASE_URL=http://127.0.0.1:1234`.
-- Add a document and run `search_documents` to confirm embeddings are generated via LM Studio.
-- Re-ingest documents when switching embedding provider or model.
-- Or run the CLI check: `node dist/embedding-cli.js --provider openai --base-url http://127.0.0.1:1234 --model text-embedding-nomic-embed-text-v1.5`.
-
-Example `.env` (defaults applied when variables are not set):
-
+**synthetic.new (remote)**:
 ```env
-# Vector Database Configuration
-MCP_LANCE_DB_PATH=~/.data/lancedb  # Custom LanceDB path (optional)
-
-# Base Directory
-MCP_BASE_DIR=/path/to/workspace   # Base directory for data storage (default: ~/.saga)
-
-# Indexing and Performance
-MCP_INDEXING_ENABLED=true          # Enable O(1) indexing (default: true)
-MCP_CACHE_SIZE=1000                # LRU cache size (default: 1000)
-MCP_PARALLEL_ENABLED=true          # Enable parallel processing (default: true)
-MCP_MAX_WORKERS=4                  # Parallel worker count (default: 4)
-MCP_STREAMING_ENABLED=true         # Enable streaming (default: true)
-MCP_STREAM_CHUNK_SIZE=65536        # Stream chunk size (default: 64KB)
-MCP_STREAM_FILE_SIZE_LIMIT=10485760 # Streaming threshold (default: 10MB)
-
-# Tag Generation
-MCP_TAG_GENERATION_ENABLED=false  # Enable automatic tag generation (default: false)
-MCP_GENERATED_TAGS_IN_QUERY=false # Use generated tags in query filters (default: false)
-MCP_SIMILARITY_THRESHOLD=0.3       # Minimum similarity score for vector search (default: 0.3)
-
-# Embedding Provider
-MCP_EMBEDDING_PROVIDER=transformers  # "transformers" or "openai" (optional)
-MCP_EMBEDDING_MODEL=Xenova/all-MiniLM-L6-v2  # Embedding model name
-MCP_EMBEDDING_BASE_URL=http://127.0.0.1:1234  # OpenAI-compatible embeddings base URL (optional)
-MCP_EMBEDDING_API_KEY=your-api-key-here  # OpenAI-compatible embeddings API key (required for remote)
-
-# LLM Provider (OpenAI-compatible)
-MCP_AI_BASE_URL=http://127.0.0.1:1234  # OpenAI-compatible base URL (e.g., LM Studio or synthetic.new)
-MCP_AI_MODEL=ministral-3-8b-instruct-2512  # OpenAI-compatible model (optional; defaults based on base URL)
-MCP_AI_API_KEY=your-api-key-here   # OpenAI-compatible API key (required for synthetic.new, optional for local)
-MCP_AI_MAX_CONTEXT_CHUNKS=6        # Max chunks in LLM prompt
+MCP_AI_BASE_URL=https://api.synthetic.new/openai/v1
+MCP_AI_API_KEY=your-api-key
 ```
 
-Default storage layout (data directory):
+## Storage Layout
 
 ```
-~/.saga/  # Or custom path via MCP_BASE_DIR
+~/.saga/
 ├── data/        # Document JSON files
-│   ├── *.json   # Document metadata and chunks
-│   └── *.md     # Markdown versions of documents
-├── lancedb/     # LanceDB vector storage (when using LanceDB)
-│   └── chunks/  # Vector index and chunk data
-└── uploads/     # Drop files (.txt, .md, .pdf) to import
+├── lancedb/     # Vector storage
+└── uploads/     # Drop files here to import
 ```
-
-## Migration Guide
-
-### Automatic Migration
-When you first use LanceDB, the system automatically detects existing JSON documents and migrates them:
-
-1. **First Startup**: LanceDB is initialized
-2. **Detection**: System checks for existing JSON documents
-3. **Migration**: Documents with embeddings are migrated to LanceDB
-4. **Completion**: Migration summary is logged to console
-
-No manual migration is required. Your existing documents are preserved.
-
-### Manual Migration
-If you need to re-run migration:
-
-```bash
-# Re-initialize by deleting LanceDB directory and restarting
-rm -rf ~/.saga/lancedb
-# Restart your MCP server - migration will run automatically
-```
-
-### Data Integrity
-- **JSON files are preserved**: Original documents remain in `data/` directory
-- **Embeddings are cached**: No need to regenerate embeddings
-- **Atomic operations**: Migration is transaction-safe
-- **Error handling**: If migration fails, an error is logged and migration can be retried
-
-## Usage examples
-
-### Query-First Document Discovery
-
-Find relevant documents using semantic search:
-
-```json
-{
-  "tool": "query",
-  "arguments": {
-    "query": "machine learning algorithms",
-    "limit": 5
-  }
-}
-```
-
-Find documents with metadata filters:
-
-```json
-{
-  "tool": "query",
-  "arguments": {
-    "query": "react hooks tutorial",
-    "limit": 10,
-    "filters": {
-      "tags": ["frontend", "javascript"],
-      "source": "upload"
-    }
-  }
-}
-```
-
-Paginate through query results:
-
-```json
-{
-  "tool": "query",
-  "arguments": {
-    "query": "database optimization",
-    "limit": 10,
-    "offset": 20
-  }
-}
-```
-
-**Response format:**
-
-```json
-{
-  "results": [
-    {
-      "id": "doc-123",
-      "title": "React Hooks Tutorial",
-      "score": 0.85,
-      "updated_at": "2024-01-15T10:30:00Z",
-      "chunks_count": 15,
-      "metadata": {
-        "tags": ["frontend", "javascript", "react"],
-        "source": "upload"
-      }
-    }
-  ],
-  "pagination": {
-    "total_documents": 42,
-    "returned": 5,
-    "has_more": true,
-    "next_offset": 5
-  }
-}
-```
-
-### Basic Document Operations
-
-Add a document via MCP tool:
-
-```json
-{
-  "tool": "add_document",
-  "arguments": {
-    "title": "Python Basics",
-    "content": "Python is a high-level programming language...",
-    "metadata": {
-      "category": "programming",
-      "tags": ["python", "tutorial"]
-    }
-  }
-}
-```
-
-Search a document:
-
-```json
-{
-  "tool": "search_documents",
-  "arguments": {
-    "document_id": "doc-123",
-    "query": "variable assignment",
-    "limit": 5
-  }
-}
-```
-
-### Crawl Documentation
-
-The crawler ingests public documentation starting from a seed URL, respects `robots.txt`, and uses sitemaps when available.
-Crawled content is untrusted; review and sanitize before using it in prompts or responses.
-
-```json
-{
-  "tool": "crawl_documentation",
-  "arguments": {
-    "seed_url": "https://example.com/docs",
-    "max_pages": 100,
-    "max_depth": 5,
-    "same_domain_only": true
-  }
-}
-```
-
-To remove a crawl session later:
-
-```json
-{
-  "tool": "delete_crawl_session",
-  "arguments": {
-    "crawl_id": "your-crawl-id"
-  }
-}
-```
-
-### LLM search examples
-
-**Analysis** (requires provider configuration):
-
-```json
-{
-  "tool": "search_documents_with_ai",
-  "arguments": {
-    "document_id": "doc-123",
-    "query": "explain the main concepts and their relationships"
-  }
-}
-```
-
-**Complex questions**:
-
-```json
-{
-  "tool": "search_documents_with_ai",
-  "arguments": {
-    "document_id": "doc-123",
-    "query": "what are the key architectural patterns and how do they work together?"
-  }
-}
-```
-
-**Summaries**:
-
-```json
-{
-  "tool": "search_documents_with_ai",
-  "arguments": {
-    "document_id": "doc-123",
-    "query": "summarize the core principles and provide examples"
-  }
-}
-```
-
-### Context Enhancement
-
-Fetch context window:
-
-```json
-{
-  "tool": "get_context_window",
-  "arguments": {
-    "document_id": "doc-123",
-    "chunk_index": 5,
-    "before": 2,
-    "after": 2
-  }
-}
-```
-
-### When to use LLM search
-- Complex questions where context matters
-- Summaries and explanations
-- Comparisons across sections or documents
-
-### LLM search behavior
-- Only relevant sections are analyzed by the LLM provider
-
-- Embedding models are downloaded on first use; some models require several hundred MB of downloads.
-- The `DocumentIndex` persists an index file and can be rebuilt if necessary.
-- The `EmbeddingCache` can be warmed by calling `process_uploads`, issuing curated queries, or using a preload API when available.
-
-### Embedding Models
-
-Embedding model selection depends on the provider:
-
-- **Transformers.js (default)**: set `MCP_EMBEDDING_PROVIDER=transformers` and `MCP_EMBEDDING_MODEL`.
-  - **`Xenova/all-MiniLM-L6-v2`** (default) - Fast, good quality (384 dimensions)
-  - **`Xenova/paraphrase-multilingual-mpnet-base-v2`** (recommended) - Best quality, multilingual (768 dimensions)
-- **OpenAI-compatible (LM Studio / remote)**: set `MCP_EMBEDDING_PROVIDER=openai` and `MCP_EMBEDDING_BASE_URL`.
-  - Default model for LM Studio: `text-embedding-nomic-embed-text-v1.5`
-
-The system derives embedding dimensions from the selected provider (Transformers.js model metadata or OpenAI-compatible response length).
-
-**Important**: Changing embedding provider or model requires re-adding all documents as embeddings are incompatible.
-
 
 ## Development
 
 ```bash
-git clone https://github.com/maxinedotdev/saga.git
-cd saga
+npm run dev      # Development mode
+npm run build    # Build TypeScript
+npm test         # Run tests
 ```
-
-```bash
-npm run dev
-```
-```bash
-npm run build
-```
-```bash
-npm run inspect
-```
-
-### Branch conventions (local)
-- `develop` is the active integration branch
-- `staging` is the runtime branch; promote by merging `develop` via `./promote-to-staging.sh` (use `--push` to publish, or `npm run promote:staging`)
-- `main` tracks upstream and should remain clean locally
-- Switch back to the dev worktree with `./switch-to-develop.sh` or `npm run switch:develop` (auto-stashes/restores local changes)
-
-### Local branch protection
-This repo includes local git hooks that block commits on `main`, block direct commits on `staging`, and block pushes to `main`.
-Run `scripts/setup-githooks.sh` to enable them for this clone.
 
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/name`
-3. Follow [Conventional Commits](https://conventionalcommits.org/) for messages
+3. Follow [Conventional Commits](https://conventionalcommits.org/)
 4. Open a pull request
 
 ## License
 
 MIT - see [LICENSE](LICENSE) file
 
-## Support
-
-- [Documentation](https://github.com/maxinedotdev/saga)
-- [Report Issues](https://github.com/maxinedotdev/saga/issues)
-- [MCP Community](https://modelcontextprotocol.io/)
-
-## Acknowledgments
-
-This project was originally created by [@andrea9293](https://github.com/andrea9293). It has been forked and is now maintained by [maxinedotdev](https://github.com/maxinedotdev).
+---
 
 **Built with [FastMCP](https://github.com/punkpeye/fastmcp) and TypeScript**
