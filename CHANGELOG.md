@@ -1,5 +1,28 @@
 # Unreleased
 
+### Breaking Changes
+
+* **Update default embedding model for OpenAI-compatible provider**: Changed from `text-embedding-nomic-embed-text-v1.5` to `text-embedding-multilingual-e5-large-instruct`
+  - The new E5 model provides better multilingual support (100+ languages), superior performance on MTEB/BEIR benchmarks, and instruction-tuned capabilities
+  - **Migration required**: Users with existing LM Studio setups must download the new model (`text-embedding-multilingual-e5-large-instruct`)
+  - Users who have explicitly set `MCP_EMBEDDING_MODEL` are unaffected
+  - See migration guide below for LM Studio download instructions
+
+### Migration Instructions
+
+**For LM Studio users:**
+1. Open LM Studio and go to the "Discover" tab
+2. Search for `text-embedding-multilingual-e5-large-instruct`
+3. Download the model (GGUF format recommended)
+4. Load the model in LM Studio's embedding server
+5. Restart your MCP client
+
+**To keep using the old model:**
+Set the environment variable explicitly:
+```
+MCP_EMBEDDING_MODEL=text-embedding-nomic-embed-text-v1.5
+```
+
 ### Dependencies
 
 * upgrade zod from v3.25.64 to v4.3.6
