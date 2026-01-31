@@ -1,5 +1,34 @@
 # Unreleased
 
+### Features
+
+* **Multi-Provider Support for Embeddings and AI Search**: Add support for configuring multiple providers simultaneously with priority-based fallback
+  - New `MCP_EMBEDDING_PROVIDERS` environment variable for multi-provider embedding configuration (JSON array format)
+  - New `MCP_AI_PROVIDERS` environment variable for multi-provider AI search configuration (JSON array format)
+  - `MultiEmbeddingProvider` class implements fallback logic across multiple embedding providers
+  - `MultiAiSearchProvider` class implements fallback logic across multiple AI search providers
+  - Provider health tracking with configurable failure thresholds (`MCP_PROVIDER_FAILURE_THRESHOLD`, default: 3)
+  - Automatic recovery with configurable timeout (`MCP_PROVIDER_RECOVERY_TIMEOUT`, default: 300000ms = 5 minutes)
+  - Full backward compatibility with existing single-provider configuration
+  - Clear logging for provider selection and fallback events
+  - Dimension validation to warn about mismatched embedding dimensions across providers
+
+### Configuration Example
+
+```bash
+# Multi-provider embedding configuration (JSON format)
+MCP_EMBEDDING_PROVIDERS='[
+  {"provider": "transformers", "priority": 1, "modelName": "Xenova/all-MiniLM-L6-v2"},
+  {"provider": "openai", "priority": 2, "baseUrl": "https://api.openai.com/v1", "model": "text-embedding-3-small", "apiKey": "sk-..."}
+]'
+
+# Multi-provider AI search configuration (JSON format)
+MCP_AI_PROVIDERS='[
+  {"provider": "openai", "priority": 1, "baseUrl": "http://127.0.0.1:1234", "model": "ministral-3-8b-instruct-2512"},
+  {"provider": "openai", "priority": 2, "baseUrl": "https://api.synthetic.new/openai/v1", "model": "glm-4.7", "apiKey": "sk-..."}
+]'
+```
+
 ### Breaking Changes
 
 * **Update default embedding model for OpenAI-compatible provider**: Changed from `text-embedding-nomic-embed-text-v1.5` to `text-embedding-multilingual-e5-large-instruct`
