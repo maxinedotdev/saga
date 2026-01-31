@@ -217,3 +217,64 @@ export interface DocumentSearchFields {
     source_metadata: SourceMetadata;
     keywords: string[];
 }
+
+// ============================================================================
+// Multi-Provider Configuration Types
+// ============================================================================
+
+/**
+ * Provider type for embeddings
+ */
+export type EmbeddingProviderType = 'transformers' | 'openai';
+
+/**
+ * Configuration for a single embedding provider in multi-provider setup
+ */
+export interface EmbeddingProviderConfig {
+    provider: EmbeddingProviderType;
+    priority: number; // Lower = higher priority
+    // transformers-specific
+    modelName?: string;
+    // openai-specific
+    baseUrl?: string;
+    model?: string;
+    apiKey?: string;
+}
+
+/**
+ * Provider type for AI search
+ */
+export type AiProviderType = 'openai';
+
+/**
+ * Configuration for a single AI search provider in multi-provider setup
+ */
+export interface AiSearchProviderConfig {
+    provider: AiProviderType;
+    priority: number; // Lower = higher priority
+    baseUrl: string;
+    model: string;
+    apiKey?: string;
+    maxChunks?: number;
+}
+
+/**
+ * Health tracking for a provider
+ */
+export interface ProviderHealth {
+    isHealthy: boolean;
+    consecutiveFailures: number;
+    lastFailureTime?: number;
+    lastSuccessTime?: number;
+}
+
+/**
+ * Generic multi-provider manager interface
+ */
+export interface MultiProviderManager<T, P> {
+    providers: Array<{ config: T; instance: P; health: ProviderHealth }>;
+    tryNext(): Promise<P | null>;
+    markSuccess(providerIndex: number): void;
+    markFailure(providerIndex: number): void;
+    getHealthyProvider(): P | null;
+}
