@@ -1,5 +1,14 @@
 import { DocumentManager } from './document-manager.js';
 import type { SearchResult, AiSearchProviderConfig, ProviderHealth } from './types.js';
+// Timeout imports: fetchWithTimeout wraps native fetch with AbortController-based timeout,
+// RequestTimeoutError is thrown when timeout is exceeded, getRequestTimeout retrieves
+// the configured timeout for 'ai-search' operation type (falls back through hierarchy:
+// MCP_AI_SEARCH_TIMEOUT_MS → MCP_REQUEST_TIMEOUT_MS → default 30000ms)
+import {
+    fetchWithTimeout,
+    RequestTimeoutError,
+    getRequestTimeout,
+} from './utils/http-timeout.js';
 
 const LM_STUDIO_BASE_URL = 'http://127.0.0.1:1234';
 const SYNTHETIC_BASE_URL = 'https://api.synthetic.new/openai/v1';
@@ -492,11 +501,30 @@ async function fetchOpenAiResponse(
         headers.Authorization = `Bearer ${config.apiKey}`;
     }
 
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-    });
+    // Retrieve the timeout for AI search operations using the configured hierarchy:
+    // MCP_AI_SEARCH_TIMEOUT_MS → MCP_REQUEST_TIMEOUT_MS → default (30000ms)
+    const timeoutMs = getRequestTimeout('ai-search');
+    const url = `${baseUrl}/chat/completions`;
+
+    let response: Response;
+    try {
+        // Use fetchWithTimeout to enforce the timeout via AbortController
+        response = await fetchWithTimeout(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(body),
+            timeoutMs,
+        });
+    } catch (error) {
+        // Handle timeout errors specifically - re-throw with logging for visibility
+        if (error instanceof RequestTimeoutError) {
+            console.error(
+                `[fetchOpenAiResponse] Request timed out after ${error.timeoutMs}ms to ${error.url}`
+            );
+            throw error;
+        }
+        throw error;
+    }
 
     const payloadText = await response.text();
     if (!response.ok) {
