@@ -1,6 +1,11 @@
 import { pipeline } from '@xenova/transformers';
 import type { EmbeddingProvider, EmbeddingProviderConfig, ProviderHealth } from './types.js';
 import { EmbeddingCache } from './embeddings/embedding-cache.js';
+// Timeout imports: fetchWithTimeout wraps native fetch with AbortController-based timeout,
+// RequestTimeoutError is thrown when timeout is exceeded, getRequestTimeout retrieves
+// the configured timeout for 'embedding' operation type (falls back through hierarchy:
+// MCP_EMBEDDING_TIMEOUT_MS → MCP_REQUEST_TIMEOUT_MS → default 30000ms)
+import { fetchWithTimeout, RequestTimeoutError, getRequestTimeout } from './utils/http-timeout.js';
 
 // ============================================================================
 // Multi-Provider Configuration and Health Management
@@ -490,49 +495,64 @@ export class OpenAiEmbeddingProvider implements EmbeddingProvider {
             headers.Authorization = `Bearer ${this.apiKey}`;
         }
 
-        const response = await fetch(`${this.baseUrl}/embeddings`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-                model: this.modelName,
-                input: text,
-            }),
-        });
+        // Retrieve the timeout for embedding operations using the configured hierarchy:
+        // MCP_EMBEDDING_TIMEOUT_MS → MCP_REQUEST_TIMEOUT_MS → default (30000ms)
+        const timeoutMs = getRequestTimeout('embedding');
+        const url = `${this.baseUrl}/embeddings`;
 
-        const payloadText = await response.text();
-        if (!response.ok) {
-            throw new Error(`OpenAI-compatible embeddings request failed (${response.status}): ${payloadText}`);
-        }
-
-        let payload: any;
         try {
-            payload = JSON.parse(payloadText);
-        } catch {
-            throw new Error(`OpenAI-compatible embeddings response was not JSON: ${payloadText}`);
+            // Use fetchWithTimeout to enforce the timeout via AbortController
+            const response = await fetchWithTimeout(url, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                    model: this.modelName,
+                    input: text,
+                }),
+                timeoutMs,
+            });
+
+            const payloadText = await response.text();
+            if (!response.ok) {
+                throw new Error(`OpenAI-compatible embeddings request failed (${response.status}): ${payloadText}`);
+            }
+
+            let payload: any;
+            try {
+                payload = JSON.parse(payloadText);
+            } catch {
+                throw new Error(`OpenAI-compatible embeddings response was not JSON: ${payloadText}`);
+            }
+
+            if (payload?.error) {
+                const message = typeof payload.error === 'string' ? payload.error : payload.error?.message;
+                throw new Error(`OpenAI-compatible embeddings response error: ${message ?? payloadText}`);
+            }
+
+            const embedding = payload?.data?.[0]?.embedding;
+            if (!Array.isArray(embedding)) {
+                throw new Error('OpenAI-compatible embeddings response missing embedding data.');
+            }
+
+            const vector = embedding.map((value: unknown) => Number(value));
+            if (vector.some(value => Number.isNaN(value))) {
+                throw new Error('OpenAI-compatible embeddings response contains non-numeric values.');
+            }
+
+            this.dimensions = vector.length;
+
+            if (this.cache) {
+                await this.cache.setEmbedding(text, vector);
+            }
+
+            return vector;
+        } catch (error) {
+            // Handle timeout errors specifically - log with details and re-throw
+            if (error instanceof RequestTimeoutError) {
+                console.error(`[OpenAiEmbeddingProvider] Request timed out after ${error.timeoutMs}ms: ${url}`);
+            }
+            throw error;
         }
-
-        if (payload?.error) {
-            const message = typeof payload.error === 'string' ? payload.error : payload.error?.message;
-            throw new Error(`OpenAI-compatible embeddings response error: ${message ?? payloadText}`);
-        }
-
-        const embedding = payload?.data?.[0]?.embedding;
-        if (!Array.isArray(embedding)) {
-            throw new Error('OpenAI-compatible embeddings response missing embedding data.');
-        }
-
-        const vector = embedding.map((value: unknown) => Number(value));
-        if (vector.some(value => Number.isNaN(value))) {
-            throw new Error('OpenAI-compatible embeddings response contains non-numeric values.');
-        }
-
-        this.dimensions = vector.length;
-
-        if (this.cache) {
-            await this.cache.setEmbedding(text, vector);
-        }
-
-        return vector;
     }
 
     isAvailable(): boolean {
