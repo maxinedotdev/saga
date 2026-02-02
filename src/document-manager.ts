@@ -1170,11 +1170,34 @@ export class DocumentManager {
         const files: { name: string; size: number; modified: string; supported: boolean }[] = [];
 
         try {
-            const pattern = this.uploadsDir.replace(/\\/g, '/') + "/*";
-            const filePaths = await glob(pattern);
+            // Custom recursive function to find files following symlinks
+            const { readdir, stat } = await import('fs/promises');
+            const filePaths: string[] = [];
+            
+            async function findFilesRecursive(dir: string) {
+                const entries = await readdir(dir, { withFileTypes: true });
+                for (const entry of entries) {
+                    const fullPath = path.join(dir, entry.name);
+                    if (entry.isSymbolicLink()) {
+                        // Follow symlink and recurse
+                        const stats = await stat(fullPath);
+                        if (stats.isDirectory()) {
+                            await findFilesRecursive(fullPath);
+                        } else if (stats.isFile()) {
+                            filePaths.push(fullPath);
+                        }
+                    } else if (entry.isDirectory()) {
+                        await findFilesRecursive(fullPath);
+                    } else if (entry.isFile()) {
+                        filePaths.push(fullPath);
+                    }
+                }
+            }
+            
+            await findFilesRecursive(this.uploadsDir);
 
             for (const filePath of filePaths) {
-                const stats = await import('fs/promises').then(fs => fs.stat(filePath));
+                const stats = await stat(filePath);
                 if (stats.isFile()) {
                     const fileName = path.basename(filePath);
                     const fileExtension = path.extname(fileName).toLowerCase();
