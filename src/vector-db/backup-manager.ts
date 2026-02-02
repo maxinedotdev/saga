@@ -7,7 +7,6 @@
 
 import * as fs from 'fs-extra';
 import * as path from 'path';
-// @ts-expect-error - node-cron lacks types
 import * as cron from 'node-cron';
 import { getLogger } from '../utils.js';
 
