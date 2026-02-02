@@ -104,6 +104,162 @@ This approach provides more accurate results, especially for:
 
 **Note**: Reranking is enabled by default but can be disabled via configuration or per-query. The feature gracefully degrades to vector-only search if the reranking service is unavailable.
 
+## Database v1.0.0
+
+Saga now uses a redesigned v1.0.0 database schema with significant improvements in performance, scalability, and data integrity.
+
+### Key Improvements
+
+| Area | Improvement | Benefit |
+|------|-------------|---------|
+| **Schema** | Flattened metadata, normalized tables | Type safety, better queries |
+| **Indexes** | Dynamic IVF_PQ, scalar indexes | Fast queries, scalable |
+| **Storage** | Single source of truth (LanceDB only) | No duplication, consistency |
+| **Memory** | Optional LRU caches | Scalable, configurable |
+| **Migration** | Batch processing, rollback plan | Safe migration |
+| **Performance** | <100ms query latency | Better UX |
+
+### Quick Start
+
+#### New Installation
+
+For new installations, the v1.0.0 schema is initialized automatically:
+
+```bash
+# The database will be initialized on first run
+saga
+```
+
+#### Migration from Legacy Schema
+
+If you have an existing database, migrate to v1.0.0:
+
+```bash
+# Run migration with backup
+node dist/scripts/migrate-to-v1.ts --backup --verbose
+
+# Or use a custom batch size for large datasets
+node dist/scripts/migrate-to-v1.ts --batch-size 2000 --verbose
+```
+
+**Migration Steps:**
+
+1. **Backup**: Automatic backup created before migration
+2. **Schema Creation**: New tables and indexes created
+3. **Data Migration**: Documents, chunks, code blocks migrated
+4. **Index Building**: Scalar and vector indexes created
+5. **Validation**: Data integrity verified
+
+**Estimated Migration Time:**
+- < 10K documents: < 5 minutes
+- 10K - 100K documents: 10-20 minutes
+- 100K - 1M documents: 30-60 minutes
+
+### Performance Targets
+
+| Metric | Target |
+|--------|--------|
+| Vector search (top-10) | < 100ms |
+| Scalar filter (document_id) | < 10ms |
+| Tag filter query | < 50ms |
+| Keyword search | < 75ms |
+| Combined query | < 150ms |
+
+### Storage Layout
+
+```
+~/.saga/vector-db/
+├── documents/              # Document metadata
+├── document_tags/          # Tag relationships
+├── document_languages/     # Language relationships
+├── chunks/                 # Text chunks with embeddings
+├── code_blocks/            # Code blocks with embeddings
+├── keywords/               # Keyword inverted index
+└── schema_version/         # Migration tracking
+```
+
+### Documentation
+
+- **[Migration Guide](docs/database-v1-migration-guide.md)** - Complete migration instructions
+- **[Schema Reference](docs/database-v1-schema-reference.md)** - Complete schema documentation
+- **[API Reference](docs/database-v1-api-reference.md)** - LanceDBV1 API documentation
+- **[Design Document](plans/database-schema-v1-design.md)** - Detailed design rationale
+
+### Database Management
+
+#### Check Database Status
+
+```bash
+# View database statistics
+node dist/scripts/db-status.ts
+```
+
+#### Initialize Fresh Database
+
+```bash
+# Initialize a new v1.0.0 database
+node dist/scripts/init-db-v1.ts --verbose
+```
+
+#### Drop Database
+
+```bash
+# Remove all database data
+node dist/scripts/drop-db.ts
+```
+
+### Troubleshooting
+
+#### Migration Issues
+
+**Symptom**: Migration fails or hangs
+
+**Solutions**:
+1. Check disk space (need 3x current database size)
+2. Reduce batch size: `--batch-size 500`
+3. Skip index creation: `--skip-indexes`
+4. Run dry run first: `--dry-run`
+
+**Symptom**: Validation fails after migration
+
+**Solutions**:
+1. Check migration logs for errors
+2. Verify backup was created
+3. Restore from backup if needed
+4. Re-run migration with verbose logging
+
+#### Performance Issues
+
+**Symptom**: Slow queries after migration
+
+**Solutions**:
+1. Verify vector indexes were created
+2. Check database stats: `node dist/scripts/db-status.ts`
+3. Rebuild indexes if needed
+4. Reduce result limit for faster queries
+
+**Symptom**: High memory usage
+
+**Solutions**:
+1. Use pagination for large result sets
+2. Reduce batch size for inserts
+3. Close database connections when done
+4. Monitor with `node dist/scripts/benchmark-db.ts`
+
+### Rollback
+
+If migration fails or issues occur:
+
+```bash
+# Restore from backup
+BACKUP_PATH=~/.saga/vector-db.backup.*
+rm -rf ~/.saga/vector-db
+cp -r $BACKUP_PATH ~/.saga/vector-db
+
+# Verify restoration
+node dist/scripts/db-status.ts
+```
+
 ## Available Tools
 
 ### Document Management

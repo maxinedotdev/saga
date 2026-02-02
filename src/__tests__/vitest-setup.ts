@@ -10,7 +10,7 @@ const normalizedEmbeddingOrigin = normalizeOrigin(embeddingBaseUrl);
 const normalizedAiOrigin = normalizeOrigin(aiBaseUrl);
 const EMBEDDING_DIMENSIONS = 8;
 
-let originalFetch: typeof fetch | undefined;
+let originalFetch: any;
 let stubEnabled = false;
 
 function normalizeOrigin(value?: string): string | null {
@@ -128,7 +128,7 @@ async function startFetchStub(): Promise<void> {
     if (forceStub) {
         console.error('[vitest-setup] MCP_FORCE_STUB_FETCH=true, forcing fetch stub regardless of reachability');
         originalFetch = globalThis.fetch;
-        globalThis.fetch = stubFetch;
+        globalThis.fetch = stubFetch as any;
         stubEnabled = true;
         console.error('[vitest-setup] Fetch stub enabled (forced)');
         return;
@@ -140,7 +140,7 @@ async function startFetchStub(): Promise<void> {
     }
 
     originalFetch = globalThis.fetch;
-    globalThis.fetch = stubFetch;
+    globalThis.fetch = stubFetch as any;
     stubEnabled = true;
     console.error('[vitest-setup] Fetch stub enabled');
 }
