@@ -9,13 +9,90 @@ import { resolveAiProviderSelection, searchDocumentWithAi } from './ai-search-pr
 import { crawlDocumentation } from './documentation-crawler.js';
 import { extractHtmlContent, looksLikeHtml } from './html-extraction.js';
 
+// ============================================
+// DIAGNOSTIC LOGGING: Server Lifecycle
+// ============================================
+
+const getTimestamp = () => new Date().toISOString();
+const getMemoryUsage = () => {
+    const usage = process.memoryUsage();
+    return `heap=${(usage.heapUsed / 1024 / 1024).toFixed(2)}MB, total=${(usage.heapTotal / 1024 / 1024).toFixed(2)}MB, rss=${(usage.rss / 1024 / 1024).toFixed(2)}MB`;
+};
+
+// Log server startup
+console.error(`[SagaServer] ${getTimestamp()} Server startup initiated`);
+console.error(`[SagaServer] ${getTimestamp()} Process ID: ${process.pid}`);
+console.error(`[SagaServer] ${getTimestamp()} Node version: ${process.version}`);
+console.error(`[SagaServer] ${getTimestamp()} Platform: ${process.platform}`);
+console.error(`[SagaServer] ${getTimestamp()} Memory usage: ${getMemoryUsage()}`);
+
+// Global uncaught exception handler
+process.on('uncaughtException', (error: Error) => {
+    console.error(`[SagaServer] ${getTimestamp()} UNCAUGHT EXCEPTION - Process will crash`);
+    console.error(`[SagaServer] ${getTimestamp()} Error name: ${error.name}`);
+    console.error(`[SagaServer] ${getTimestamp()} Error message: ${error.message}`);
+    console.error(`[SagaServer] ${getTimestamp()} Stack trace:\n${error.stack}`);
+    console.error(`[SagaServer] ${getTimestamp()} Memory usage: ${getMemoryUsage()}`);
+    console.error(`[SagaServer] ${getTimestamp()} Active handles: ${process._getActiveHandles()?.length || 'unknown'}`);
+    console.error(`[SagaServer] ${getTimestamp()} Active requests: ${process._getActiveRequests()?.length || 'unknown'}`);
+});
+
+// Global unhandled rejection handler
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+    console.error(`[SagaServer] ${getTimestamp()} UNHANDLED REJECTION`);
+    console.error(`[SagaServer] ${getTimestamp()} Reason: ${reason instanceof Error ? reason.message : String(reason)}`);
+    if (reason instanceof Error) {
+        console.error(`[SagaServer] ${getTimestamp()} Stack trace:\n${reason.stack}`);
+    }
+    console.error(`[SagaServer] ${getTimestamp()} Memory usage: ${getMemoryUsage()}`);
+});
+
+// Signal handlers for debugging restarts
+const handleSignal = (signal: string) => {
+    console.error(`[SagaServer] ${getTimestamp()} Signal received: ${signal}`);
+    console.error(`[SagaServer] ${getTimestamp()} Memory usage: ${getMemoryUsage()}`);
+    console.error(`[SagaServer] ${getTimestamp()} Active handles: ${process._getActiveHandles()?.length || 'unknown'}`);
+    console.error(`[SagaServer] ${getTimestamp()} Active requests: ${process._getActiveRequests()?.length || 'unknown'}`);
+};
+
+process.on('SIGTERM', () => {
+    handleSignal('SIGTERM');
+    console.error(`[SagaServer] ${getTimestamp()} SIGTERM: Graceful shutdown initiated`);
+});
+
+process.on('SIGINT', () => {
+    handleSignal('SIGINT');
+    console.error(`[SagaServer] ${getTimestamp()} SIGINT: Graceful shutdown initiated`);
+});
+
+process.on('SIGUSR1', () => {
+    handleSignal('SIGUSR1');
+    console.error(`[SagaServer] ${getTimestamp()} SIGUSR1: Debug signal received (typically triggers debugger)`);
+});
+
+process.on('SIGUSR2', () => {
+    handleSignal('SIGUSR2');
+    console.error(`[SagaServer] ${getTimestamp()} SIGUSR2: Debug signal received (typically triggers debugger)`);
+});
+
+// Log process exit
+process.on('exit', (code: number) => {
+    console.error(`[SagaServer] ${getTimestamp()} Process exiting with code: ${code}`);
+    console.error(`[SagaServer] ${getTimestamp()} Memory usage: ${getMemoryUsage()}`);
+});
+
+// ============================================
+// END DIAGNOSTIC LOGGING
+// ============================================
+
 // Initialize server
 const server = new FastMCP({
     name: "Documentation Server",
     version: "1.0.0",
 });
 
-console.error('[Server] FastMCP server initialized');
+console.error(`[Server] FastMCP server initialized`);
+console.error(`[SagaServer] ${getTimestamp()} FastMCP server created`);
 
 // Initialize with default embedding provider
 let documentManager: DocumentManager;

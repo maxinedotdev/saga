@@ -16,6 +16,43 @@ import { Index } from "@lancedb/lancedb";
 
 const logger = getLogger("VectorDB");
 
+// ============================================
+// DIAGNOSTIC LOGGING: LanceDB
+// ============================================
+
+const getTimestamp = () => new Date().toISOString();
+const getMemoryUsage = () => {
+    const usage = process.memoryUsage();
+    return `heap=${(usage.heapUsed / 1024 / 1024).toFixed(2)}MB, total=${(usage.heapTotal / 1024 / 1024).toFixed(2)}MB, rss=${(usage.rss / 1024 / 1024).toFixed(2)}MB`;
+};
+
+// Track active operations for debugging
+const activeLanceDbOperations = new Map<string, { startTime: number; operation: string }>();
+
+const startLanceDbOperation = (operationId: string, operation: string) => {
+    activeLanceDbOperations.set(operationId, { startTime: Date.now(), operation });
+    console.error(`[LanceDB] ${getTimestamp()} START ${operation} (id: ${operationId})`);
+    console.error(`[LanceDB] ${getTimestamp()} Memory: ${getMemoryUsage()}`);
+};
+
+const endLanceDbOperation = (operationId: string, status: 'success' | 'error', error?: Error) => {
+    const op = activeLanceDbOperations.get(operationId);
+    if (op) {
+        const duration = Date.now() - op.startTime;
+        console.error(`[LanceDB] ${getTimestamp()} END ${op.operation} (id: ${operationId}) - ${status} (${duration}ms)`);
+        console.error(`[LanceDB] ${getTimestamp()} Memory: ${getMemoryUsage()}`);
+        if (error) {
+            console.error(`[LanceDB] ${getTimestamp()} Error: ${error.message}`);
+            console.error(`[LanceDB] ${getTimestamp()} Stack: ${error.stack}`);
+        }
+        activeLanceDbOperations.delete(operationId);
+    }
+};
+
+// ============================================
+// END DIAGNOSTIC LOGGING
+// ============================================
+
 /**
  * Vector database interface for storing and searching document chunks
  */
@@ -88,13 +125,20 @@ export class LanceDBAdapter implements VectorDatabase {
         const startTime = Date.now();
         let retries = 0;
         
+        console.error(`[LanceDB] ${getTimestamp()} acquireLock START - timeout: ${timeoutMs}ms, pid: ${pid}`);
+        console.error(`[LanceDB] ${getTimestamp()} acquireLock - Lock file: ${lockFile}`);
+        console.error(`[LanceDB] ${getTimestamp()} Memory: ${getMemoryUsage()}`);
+        
         while (Date.now() - startTime < timeoutMs) {
             try {
                 // Try to create lock file exclusively
                 const fd = fs.openSync(lockFile, "wx");
                 fs.writeSync(fd, JSON.stringify({ pid, timestamp: Date.now() }));
                 fs.closeSync(fd);
+                const duration = Date.now() - startTime;
                 logger.info(`[PID:${pid}] Acquired LanceDB initialization lock`);
+                console.error(`[LanceDB] ${getTimestamp()} acquireLock SUCCESS - acquired after ${duration}ms (${retries} retries)`);
+                console.error(`[LanceDB] ${getTimestamp()} Memory: ${getMemoryUsage()}`);
                 return true;
             } catch (err) {
                 // Lock exists, check if stale
@@ -105,22 +149,30 @@ export class LanceDBAdapter implements VectorDatabase {
                     // Stale lock detection (5 minutes)
                     if (lockAge > 300000) {
                         logger.warn(`[PID:${pid}] Detected stale lock from PID:${lockData.pid}, removing`);
+                        console.error(`[LanceDB] ${getTimestamp()} acquireLock - Removing stale lock from PID:${lockData.pid} (age: ${lockAge}ms)`);
                         fs.unlinkSync(lockFile);
                         continue; // Retry immediately
                     }
                     
                     logger.debug(`[PID:${pid}] Waiting for lock held by PID:${lockData.pid}`);
+                    console.error(`[LanceDB] ${getTimestamp()} acquireLock - Waiting for lock held by PID:${lockData.pid} (age: ${lockAge}ms, retry: ${retries})`);
                 } catch (readErr) {
                     // Lock file may have been released
+                    console.error(`[LanceDB] ${getTimestamp()} acquireLock - Lock file read error (may have been released): ${readErr}`);
                 }
                 
                 retries++;
                 // Wait before retry (exponential backoff)
-                await new Promise(r => setTimeout(r, Math.min(1000, Math.pow(2, retries) * 100)));
+                const delay = Math.min(1000, Math.pow(2, retries) * 100);
+                console.error(`[LanceDB] ${getTimestamp()} acquireLock - Retry ${retries} after ${delay}ms delay`);
+                await new Promise(r => setTimeout(r, delay));
             }
         }
         
+        const duration = Date.now() - startTime;
         logger.error(`[PID:${pid}] Failed to acquire lock within ${timeoutMs}ms`);
+        console.error(`[LanceDB] ${getTimestamp()} acquireLock FAILED - timeout after ${duration}ms (${retries} retries)`);
+        console.error(`[LanceDB] ${getTimestamp()} Memory: ${getMemoryUsage()}`);
         return false;
     }
 

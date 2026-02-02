@@ -14,6 +14,67 @@ import type { VectorDatabase } from './vector-db/lance-db.js';
 import { createVectorDatabase, migrateFromJson } from './vector-db/index.js';
 import { detectLanguages, getAcceptedLanguages, getLanguageConfidenceThreshold, isLanguageAllowed, getDefaultQueryLanguages } from './language-detection.js';
 
+// ============================================
+// DIAGNOSTIC LOGGING: Document Manager
+// ============================================
+
+const getTimestamp = () => new Date().toISOString();
+const getMemoryUsage = () => {
+    const usage = process.memoryUsage();
+    return `heap=${(usage.heapUsed / 1024 / 1024).toFixed(2)}MB, total=${(usage.heapTotal / 1024 / 1024).toFixed(2)}MB, rss=${(usage.rss / 1024 / 1024).toFixed(2)}MB`;
+};
+
+// Track active operations for debugging
+const activeOperations = new Map<string, { startTime: number; operation: string }>();
+
+const startOperation = (operationId: string, operation: string) => {
+    activeOperations.set(operationId, { startTime: Date.now(), operation });
+    console.error(`[DocumentManager] ${getTimestamp()} START ${operation} (id: ${operationId})`);
+    console.error(`[DocumentManager] ${getTimestamp()} Memory: ${getMemoryUsage()}`);
+};
+
+const endOperation = (operationId: string, status: 'success' | 'error', error?: Error) => {
+    const op = activeOperations.get(operationId);
+    if (op) {
+        const duration = Date.now() - op.startTime;
+        console.error(`[DocumentManager] ${getTimestamp()} END ${op.operation} (id: ${operationId}) - ${status} (${duration}ms)`);
+        console.error(`[DocumentManager] ${getTimestamp()} Memory: ${getMemoryUsage()}`);
+        if (error) {
+            console.error(`[DocumentManager] ${getTimestamp()} Error: ${error.message}`);
+            console.error(`[DocumentManager] ${getTimestamp()} Stack: ${error.stack}`);
+        }
+        activeOperations.delete(operationId);
+    }
+};
+
+// Periodic memory logging during document processing
+let memoryLogInterval: NodeJS.Timeout | null = null;
+
+const startMemoryLogging = () => {
+    if (!memoryLogInterval) {
+        memoryLogInterval = setInterval(() => {
+            console.error(`[DocumentManager] ${getTimestamp()} Periodic memory check - ${getMemoryUsage()}`);
+            console.error(`[DocumentManager] ${getTimestamp()} Active operations: ${activeOperations.size}`);
+            for (const [id, op] of activeOperations.entries()) {
+                const elapsed = Date.now() - op.startTime;
+                console.error(`[DocumentManager] ${getTimestamp()}   - ${op.operation} (${id}): ${elapsed}ms`);
+            }
+        }, 30000); // Every 30 seconds
+    }
+};
+
+const stopMemoryLogging = () => {
+    if (memoryLogInterval) {
+        clearInterval(memoryLogInterval);
+        memoryLogInterval = null;
+        console.error(`[DocumentManager] ${getTimestamp()} Stopped periodic memory logging`);
+    }
+};
+
+// ============================================
+// END DIAGNOSTIC LOGGING
+// ============================================
+
 /**
  * Document manager that handles document operations with chunking, indexing, and embeddings
  */
@@ -151,16 +212,27 @@ export class DocumentManager {
      * This waits for async initialization to complete with a timeout
      */
     async ensureVectorDbReady(): Promise<boolean> {
+        const opId = `ensureVectorDbReady-${Date.now()}`;
+        startOperation(opId, 'ensureVectorDbReady');
+        
+        console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - useVectorDb: ${this.useVectorDb}, vectorDatabase exists: ${!!this.vectorDatabase}`);
+        console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - vectorDbInitPromise exists: ${!!this.vectorDbInitPromise}`);
+        
         if (!this.useVectorDb) {
+            console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - Vector DB disabled by config`);
+            endOperation(opId, 'success');
             return false;
         }
         
         if (!this.vectorDatabase) {
+            console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - Vector DB instance is null`);
+            endOperation(opId, 'success');
             return false;
         }
 
         // If there's an ongoing initialization, wait for it (with timeout)
         if (this.vectorDbInitPromise) {
+            console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - Waiting for initialization promise...`);
             try {
                 const timeoutPromise = new Promise<never>((_, reject) => {
                     setTimeout(() => {
@@ -169,24 +241,33 @@ export class DocumentManager {
                 });
 
                 await Promise.race([this.vectorDbInitPromise, timeoutPromise]);
+                console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - Initialization promise resolved`);
             } catch (error) {
                 console.error('[DocumentManager] Vector DB initialization failed or timed out:', error);
+                console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - Disabling vector DB due to initialization failure`);
                 // Disable vector DB if initialization fails
                 this.useVectorDb = false;
                 this.vectorDatabase = null;
                 this.vectorDbInitPromise = null;
+                endOperation(opId, 'error', error instanceof Error ? error : new Error(String(error)));
                 return false;
             }
         }
 
         // Check if vector DB is actually initialized
         const isInitialized = (this.vectorDatabase as any).isInitialized?.() ?? true;
+        console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - isInitialized: ${isInitialized}`);
         
         if (!isInitialized) {
+            console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - Vector DB reports not initialized`);
+            endOperation(opId, 'success');
             return false;
         }
 
+        console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - Flushing pending vector chunks...`);
         await this.flushPendingVectorChunks();
+        console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - Vector DB ready`);
+        endOperation(opId, 'success');
         return true;
     }
 
