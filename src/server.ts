@@ -33,8 +33,8 @@ process.on('uncaughtException', (error: Error) => {
     console.error(`[SagaServer] ${getTimestamp()} Error message: ${error.message}`);
     console.error(`[SagaServer] ${getTimestamp()} Stack trace:\n${error.stack}`);
     console.error(`[SagaServer] ${getTimestamp()} Memory usage: ${getMemoryUsage()}`);
-    console.error(`[SagaServer] ${getTimestamp()} Active handles: ${process._getActiveHandles()?.length || 'unknown'}`);
-    console.error(`[SagaServer] ${getTimestamp()} Active requests: ${process._getActiveRequests()?.length || 'unknown'}`);
+    console.error(`[SagaServer] ${getTimestamp()} Active handles: ${(process as any)._getActiveHandles?.()?.length || 'unknown'}`);
+    console.error(`[SagaServer] ${getTimestamp()} Active requests: ${(process as any)._getActiveRequests?.()?.length || 'unknown'}`);
 });
 
 // Global unhandled rejection handler
@@ -51,8 +51,8 @@ process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
 const handleSignal = (signal: string) => {
     console.error(`[SagaServer] ${getTimestamp()} Signal received: ${signal}`);
     console.error(`[SagaServer] ${getTimestamp()} Memory usage: ${getMemoryUsage()}`);
-    console.error(`[SagaServer] ${getTimestamp()} Active handles: ${process._getActiveHandles()?.length || 'unknown'}`);
-    console.error(`[SagaServer] ${getTimestamp()} Active requests: ${process._getActiveRequests()?.length || 'unknown'}`);
+    console.error(`[SagaServer] ${getTimestamp()} Active handles: ${(process as any)._getActiveHandles?.()?.length || 'unknown'}`);
+    console.error(`[SagaServer] ${getTimestamp()} Active requests: ${(process as any)._getActiveRequests?.()?.length || 'unknown'}`);
 };
 
 process.on('SIGTERM', () => {
@@ -291,7 +291,7 @@ server.addTool({
                 return "No chunks found matching your query in the specified document.";
             }
 
-            const searchResults = results.map(result => ({
+            const searchResults = results.map((result: any) => ({
                 // chunk_id: result.chunk.id,
                 document_id: result.chunk.document_id,
                 chunk_index: result.chunk.chunk_index,
@@ -668,7 +668,7 @@ server.addTool({
                     : "No code blocks found matching your query.";
             }
 
-            const searchResults = results.map(result => ({
+            const searchResults = results.map((result: any) => ({
                 document_id: result.code_block.document_id,
                 block_id: result.code_block.block_id,
                 block_index: result.code_block.block_index,

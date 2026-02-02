@@ -219,5 +219,3 @@ describe('Performance Benchmarks', () => {
         });
     });
 });
-
-export { runPerformanceBenchmarks, BenchmarkResult, BenchmarkStats };

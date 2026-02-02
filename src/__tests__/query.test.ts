@@ -277,7 +277,7 @@ describe('Query Unit Tests', () => {
 
                 expect(result.results.length).toBeGreaterThan(0);
 
-                const foundDoc = result.results.find(r => r.id === doc.id);
+                const foundDoc = doc ? result.results.find(r => r.id === doc.id) : undefined;
                 expect(foundDoc).toBeDefined();
 
                 if (foundDoc && foundDoc.metadata) {

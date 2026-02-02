@@ -283,16 +283,16 @@ describe('Query Integration Tests', () => {
 
                 const beforeDelete = await documentManager.query('document', { limit: 10 });
                 const beforeDeleteIds = beforeDelete.results.map(r => r.id);
-                expect(beforeDeleteIds.includes(doc1.id)).toBe(true);
+                expect(doc1 ? beforeDeleteIds.includes(doc1.id) : false).toBe(true);
 
-                const deleted = await documentManager.deleteDocument(doc1.id);
+                const deleted = doc1 ? await documentManager.deleteDocument(doc1.id) : false;
                 expect(deleted).toBe(true);
 
                 const afterDelete = await documentManager.query('document', { limit: 10 });
                 const afterDeleteIds = afterDelete.results.map(r => r.id);
-                expect(afterDeleteIds.includes(doc1.id)).toBe(false);
-                expect(afterDeleteIds.includes(doc2.id)).toBe(true);
-                expect(afterDeleteIds.includes(doc3.id)).toBe(true);
+                expect(afterDeleteIds.includes(doc1?.id || '')).toBe(false);
+                expect(doc2 ? afterDeleteIds.includes(doc2.id) : false).toBe(true);
+                expect(doc3 ? afterDeleteIds.includes(doc3.id) : false).toBe(true);
 
                 const filteredAfterDelete = await documentManager.query('test', {
                     limit: 10,

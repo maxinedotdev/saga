@@ -160,7 +160,9 @@ describe('Language Detection', () => {
                     expect(englishDoc?.metadata.languages).toContain('en');
 
                     // Clean up
-                    await documentManager.deleteDocument(englishDoc.id);
+                    if (englishDoc) {
+                        await documentManager.deleteDocument(englishDoc.id);
+                    }
                 });
             });
         });
@@ -187,19 +189,23 @@ describe('Language Detection', () => {
                     filters: { languages: ['en'] }
                 });
 
-                const hasDoc1 = englishResults.results.some(r => r.id === doc1.id);
+                const hasDoc1 = doc1 ? englishResults.results.some(r => r.id === doc1.id) : false;
                 expect(hasDoc1).toBe(true);
 
                 const spanishResults = await documentManager.query('prueba', {
                     filters: { languages: ['es'] }
                 });
 
-                const hasDoc2 = spanishResults.results.some(r => r.id === doc2.id);
+                const hasDoc2 = doc2 ? spanishResults.results.some(r => r.id === doc2.id) : false;
                 expect(hasDoc2).toBe(true);
 
                 // Clean up
-                await documentManager.deleteDocument(doc1.id);
-                await documentManager.deleteDocument(doc2.id);
+                if (doc1) {
+                    await documentManager.deleteDocument(doc1.id);
+                }
+                if (doc2) {
+                    await documentManager.deleteDocument(doc2.id);
+                }
             });
         });
     });

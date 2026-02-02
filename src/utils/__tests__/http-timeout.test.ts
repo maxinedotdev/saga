@@ -305,7 +305,7 @@ describe('fetchWithTimeout', () => {
 
             try {
                 global.fetch = vi.fn().mockImplementation((url: string | URL, options?: RequestInit) => {
-                    receivedSignal = options?.signal;
+                    receivedSignal = options?.signal as AbortSignal | undefined;
                     return new Promise((resolve) => {
                         setTimeout(() => {
                             resolve(new Response('{}', { status: 200 }));
@@ -435,7 +435,7 @@ describe('fetchWithTimeout', () => {
 
             try {
                 global.fetch = vi.fn().mockImplementation((url: string | URL, options?: RequestInit) => {
-                    receivedSignal = options?.signal;
+                    receivedSignal = options?.signal as AbortSignal | undefined;
                     return new Response('{}', { status: 200 });
                 }) as any;
 
