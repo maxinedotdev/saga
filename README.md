@@ -83,11 +83,26 @@ Add to your MCP client configuration (e.g., Claude Desktop):
 ## Features
 
 - **Semantic Search**: Vector-based search with LanceDB and HNSW indexing
+- **Two-Stage Retrieval**: Optional cross-encoder reranking for improved result quality
 - **Query-First Discovery**: Find relevant documents quickly with hybrid ranking (vector + keyword fallback)
 - **Web Crawling**: Crawl public documentation with `crawl_documentation`
 - **LLM Integration**: Optional AI-powered analysis via OpenAI-compatible providers (LM Studio, synthetic.new)
 - **Performance**: LRU caching, parallel processing, streaming file reads
 - **Local-First**: All data stored in `~/.saga/` - no external services required
+
+### Reranking
+
+Saga supports optional two-stage retrieval that improves search result quality by combining vector search with cross-encoder reranking:
+
+1. **Stage 1 - Vector Search**: Retrieve a larger pool of candidate results (5x the requested limit)
+2. **Stage 2 - Reranking**: Use a cross-encoder model to re-rank candidates based on semantic similarity to the query
+
+This approach provides more accurate results, especially for:
+- Multilingual queries (Norwegian, English, and mixed-language content)
+- Code snippet searches
+- Complex technical queries
+
+**Note**: Reranking is enabled by default but can be disabled via configuration or per-query. The feature gracefully degrades to vector-only search if the reranking service is unavailable.
 
 ## Available Tools
 
@@ -124,6 +139,48 @@ Configure via environment variables:
 | `MCP_AI_API_KEY` | API key for remote providers | - |
 | `MCP_TAG_GENERATION_ENABLED` | Auto-generate tags with AI | `false` |
 | `MCP_SIMILARITY_THRESHOLD` | Min similarity score (0.0-1.0) | `0.3` |
+
+### Reranking Configuration
+
+Reranking improves search result quality by using cross-encoder models to re-rank vector search results.
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `MCP_RERANKING_ENABLED` | Enable/disable reranking feature | `true` |
+| `MCP_RERANKING_PROVIDER` | Reranking provider: `cohere`, `jina`, `openai`, `custom` | `cohere` |
+| `MCP_RERANKING_BASE_URL` | Base URL for custom provider | (provider default) |
+| `MCP_RERANKING_API_KEY` | API key for reranking provider | - |
+| `MCP_RERANKING_MODEL` | Reranking model name | (provider default) |
+| `MCP_RERANKING_CANDIDATES` | Max candidates to retrieve for reranking | `50` |
+| `MCP_RERANKING_TOP_K` | Number of results to return after reranking | `10` |
+| `MCP_RERANKING_TIMEOUT` | Reranking API timeout (ms) | `30000` |
+
+**Provider-Specific Defaults:**
+
+- **Cohere**: `https://api.cohere.ai/v1`, model: `rerank-multilingual-v3.0`
+- **Jina AI**: `https://api.jina.ai/v1`, model: `jina-reranker-v1-base-en`
+- **OpenAI**: `https://api.openai.com/v1`, model: `gpt-4o-mini`
+
+**Example Configurations:**
+
+```env
+# Cohere (recommended for multilingual)
+MCP_RERANKING_ENABLED=true
+MCP_RERANKING_PROVIDER=cohere
+MCP_RERANKING_API_KEY=your-cohere-api-key
+
+# Jina AI
+MCP_RERANKING_ENABLED=true
+MCP_RERANKING_PROVIDER=jina
+MCP_RERANKING_API_KEY=your-jina-api-key
+
+# Custom endpoint
+MCP_RERANKING_ENABLED=true
+MCP_RERANKING_PROVIDER=custom
+MCP_RERANKING_BASE_URL=https://your-reranker.example.com/v1
+MCP_RERANKING_API_KEY=your-api-key
+MCP_RERANKING_MODEL=your-model-name
+```
 
 ### Request Timeouts
 
@@ -206,6 +263,36 @@ MCP_AI_API_KEY=your-api-key
 ### Graceful Degradation
 
 If the vector database fails to initialize, the server will continue running without vector search capabilities. Document management tools (add, list, delete) remain functional, but semantic search will be unavailable. Check the MCP logs to identify and resolve the underlying issue.
+
+### Reranking Issues
+
+**Symptom**: Search results don't use reranking despite being enabled
+
+**Common causes**:
+- Missing or invalid `MCP_RERANKING_API_KEY`
+- Reranking API endpoint unreachable
+- Timeout value too low for the provider
+
+**Solutions**:
+1. **Verify API key**: Ensure the API key is valid for your reranking provider
+2. **Check endpoint connectivity**:
+   ```bash
+   curl https://api.cohere.ai/v1/rerank \
+     -H "Authorization: Bearer YOUR_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "test", "documents": ["test"], "model": "rerank-multilingual-v3.0"}'
+   ```
+3. **Increase timeout**: Set `MCP_RERANKING_TIMEOUT` to a higher value (e.g., `60000` for 60 seconds)
+4. **Check MCP logs**: Look for reranking-related errors in the MCP server logs
+
+**Symptom**: Reranking causes search to be slow
+
+**Solutions**:
+1. **Reduce candidate pool**: Lower `MCP_RERANKING_CANDIDATES` (default: 50)
+2. **Disable for quick searches**: Set `MCP_RERANKING_ENABLED=false` for faster results
+3. **Use per-query override**: Pass `useReranking: false` in query options for specific queries
+
+**Note**: Reranking gracefully degrades to vector-only search if the reranking service is unavailable or times out.
 
 ## Storage Layout
 

@@ -3,7 +3,7 @@ import { writeFile, readFile, copyFile, readdir, unlink } from "fs/promises";
 import * as path from "path";
 import { glob } from "glob";
 import { createHash } from 'crypto';
-import type { Document, DocumentChunk, DocumentSummary, SearchResult, CodeBlock, EmbeddingProvider, QueryOptions, QueryResponse, DocumentDiscoveryResult, MetadataFilter } from './types.js';
+import type { Document, DocumentChunk, DocumentSummary, SearchResult, CodeBlock, EmbeddingProvider, QueryOptions, QueryResponse, DocumentDiscoveryResult, MetadataFilter, Reranker, RerankResult } from './types.js';
 import { IntelligentChunker } from './intelligent-chunker.js';
 import { extractText } from 'unpdf';
 import { getDefaultDataDir, expandHomeDir } from './utils.js';
@@ -12,6 +12,8 @@ import { extractMarkdownCodeBlocks } from './markdown-code-blocks.js';
 import type { VectorDatabase } from './vector-db/lance-db.js';
 import { createVectorDatabase, migrateFromJson } from './vector-db/index.js';
 import { detectLanguages, getAcceptedLanguages, getLanguageConfidenceThreshold, isLanguageAllowed, getDefaultQueryLanguages } from './language-detection.js';
+import { ApiReranker } from './reranking/api-reranker.js';
+import { getRerankingConfig, isRerankingEnabled } from './reranking/config.js';
 
 // ============================================
 // DIAGNOSTIC LOGGING: Document Manager
@@ -93,6 +95,8 @@ export class DocumentManager {
     private useStreaming: boolean;
     private useTagGeneration: boolean;
     private useGeneratedTagsInQuery: boolean;
+    private reranker: Reranker | null = null;
+    private rerankingEnabled: boolean = false;
 
     constructor(embeddingProvider: EmbeddingProvider, vectorDatabase?: VectorDatabase) {
         // Always use default paths
@@ -118,6 +122,20 @@ export class DocumentManager {
         this.useStreaming = process.env.MCP_STREAMING_ENABLED !== 'false';
         this.useTagGeneration = process.env.MCP_TAG_GENERATION_ENABLED === 'true';
         this.useGeneratedTagsInQuery = process.env.MCP_GENERATED_TAGS_IN_QUERY === 'true';
+        
+        // Initialize reranker if enabled
+        this.rerankingEnabled = isRerankingEnabled();
+        if (this.rerankingEnabled) {
+            try {
+                const config = getRerankingConfig();
+                this.reranker = new ApiReranker(config);
+                console.error(`[DocumentManager] Reranker initialized with model: ${config.model}`);
+            } catch (error) {
+                console.error('[DocumentManager] Failed to initialize reranker:', error);
+                this.rerankingEnabled = false;
+                this.reranker = null;
+            }
+        }
         
         this.ensureDataDir();
         this.ensureUploadsDir();
@@ -1189,6 +1207,7 @@ export class DocumentManager {
         const offset = options.offset ?? 0;
         const includeMetadata = options.include_metadata ?? true;
         const filters = options.filters ?? {};
+        const useReranking = options.useReranking ?? this.rerankingEnabled;
 
         // Apply default language filters if not specified
         if (!filters.languages) {
@@ -1201,9 +1220,11 @@ export class DocumentManager {
 
         console.error(`[DocumentManager] query START - queryText: "${queryText}", limit: ${limit}, offset: ${offset}`);
         console.error(`[DocumentManager] useVectorDb: ${this.useVectorDb}, vectorDatabase exists: ${!!this.vectorDatabase}`);
+        console.error(`[DocumentManager] useReranking: ${useReranking}, reranker exists: ${!!this.reranker}`);
 
-        // Try vector search first
-        let results: DocumentDiscoveryResult[] = [];
+        // Stage 1: Vector search with candidate retrieval (5x for reranking pool)
+        let candidates: DocumentDiscoveryResult[] = [];
+        const candidateLimit = useReranking ? (limit + offset) * 5 : limit + offset + 10;
         
         if (this.useVectorDb && this.vectorDatabase) {
             console.error('[DocumentManager] Attempting vector search...');
@@ -1222,7 +1243,7 @@ export class DocumentManager {
 
                     const vectorResults = await this.vectorDatabase.search(
                         queryEmbedding,
-                        limit + offset + 10 // Get extra results for filtering
+                        candidateLimit
                     );
                     
                     console.error(`[DocumentManager] Vector search returned ${vectorResults.length} results`);
@@ -1271,7 +1292,7 @@ export class DocumentManager {
                         console.error(`  doc_id: ${result.id}, avg_score: ${result.score.toFixed(4)}, chunks: ${result.chunks_count}`);
                     }
                     
-                    results = Array.from(docScoreMap.entries())
+                    candidates = Array.from(docScoreMap.entries())
                         .filter(([_, data]) => (data.score / data.chunks) >= similarityThreshold)
                         .map(([docId, data]) => ({
                             id: docId,
@@ -1282,7 +1303,7 @@ export class DocumentManager {
                         }))
                         .sort((a, b) => b.score - a.score);
                     
-                    console.error(`[DocumentManager] Post-filter results: ${results.length} documents passed threshold`);
+                    console.error(`[DocumentManager] Post-filter results: ${candidates.length} documents passed threshold`);
                 } catch (error) {
                     console.error('[DocumentManager] Vector search failed, falling back to keyword search:', error);
                     console.error(`[DocumentManager] Error details: ${error instanceof Error ? error.message : String(error)}`);
@@ -1296,7 +1317,7 @@ export class DocumentManager {
         
         // Fall back to keyword search if vector search returned insufficient results
         const minVectorResults = Math.max(1, Math.floor(limit / 2));
-        if (results.length < minVectorResults && this.useIndexing && this.documentIndex) {
+        if (candidates.length < minVectorResults && this.useIndexing && this.documentIndex) {
             await this.ensureIndexInitialized();
             const keywordDocIds = this.documentIndex.searchByCombinedCriteria(queryText);
 
@@ -1304,7 +1325,7 @@ export class DocumentManager {
             const keywordResults: DocumentDiscoveryResult[] = [];
             for (const docId of keywordDocIds) {
                 // Skip if already in vector results
-                if (results.some(r => r.id === docId)) continue;
+                if (candidates.some(r => r.id === docId)) continue;
                 
                 const searchFields = this.documentIndex!.getDocumentSearchFields(docId);
                 if (searchFields) {
@@ -1319,7 +1340,39 @@ export class DocumentManager {
             }
             
             // Merge results: vector results first, then keyword results
-            results = [...results, ...keywordResults];
+            candidates = [...candidates, ...keywordResults];
+        }
+        
+        // Stage 2: Rerank if enabled
+        let results: DocumentDiscoveryResult[] = candidates;
+        if (useReranking && this.reranker && candidates.length > 0) {
+            try {
+                console.error('[DocumentManager] Starting reranking stage...');
+                
+                // Fetch document contents for reranking
+                const documentContents: string[] = [];
+                for (const candidate of candidates) {
+                    const document = await this.getDocument(candidate.id);
+                    if (document) {
+                        documentContents.push(document.content);
+                    }
+                }
+                
+                // Perform reranking
+                const reranked = await this.reranker.rerank(queryText, documentContents, {
+                    topK: limit + offset
+                });
+                
+                console.error(`[DocumentManager] Reranking completed, got ${reranked.length} results`);
+                
+                // Map reranked indices to results
+                results = this.mapRerankedResults(reranked, candidates);
+                console.error(`[DocumentManager] Reranked ${results.length} documents`);
+            } catch (error) {
+                console.error('[DocumentManager] Reranking failed, using vector-only results:', error);
+                // Fallback to vector-only results if reranking fails
+                results = candidates;
+            }
         }
         
         // Fetch document details for all results
@@ -1354,6 +1407,28 @@ export class DocumentManager {
                 next_offset: offset + limit < finalResults.length ? offset + limit : null
             }
         };
+    }
+
+    /**
+     * Map reranked indices to original results
+     * @param reranked - Reranking results with indices and scores
+     * @param candidates - Original candidate results
+     * @returns Reordered results based on reranking
+     */
+    private mapRerankedResults(reranked: RerankResult[], candidates: DocumentDiscoveryResult[]): DocumentDiscoveryResult[] {
+        const result: DocumentDiscoveryResult[] = [];
+        
+        for (const rerankResult of reranked) {
+            const candidate = candidates[rerankResult.index];
+            if (candidate) {
+                result.push({
+                    ...candidate,
+                    score: rerankResult.score
+                });
+            }
+        }
+        
+        return result;
     }
 
     private matchesFilters(metadata: Record<string, any> | undefined, filters: MetadataFilter): boolean {

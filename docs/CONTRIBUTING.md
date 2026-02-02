@@ -332,7 +332,14 @@ src/
 ├── embedding-provider.ts  # AI embedding abstraction
 ├── search-engine.ts       # Semantic search functionality
 ├── types.ts              # TypeScript type definitions
-└── utils.ts              # Utility functions
+├── utils.ts              # Utility functions
+├── reranking/            # Reranking module
+│   ├── index.ts          # Module exports
+│   ├── config.ts         # Configuration management
+│   └── api-reranker.ts   # API-based reranker implementation
+├── embeddings/           # Embedding-related modules
+├── indexing/             # Document indexing
+└── vector-db/            # Vector database abstraction
 
 .github/
 ├── workflows/            # CI/CD workflows
@@ -343,6 +350,126 @@ docs/
 ├── SECURITY.md
 └── CONTRIBUTING.md (this file)
 ```
+
+## Reranking Development
+
+### Overview
+
+Saga implements a two-stage retrieval system using API-based cross-encoder reranking to improve search result quality. The reranking feature is opt-out (enabled by default) and gracefully degrades to vector-only search on failures.
+
+### Architecture
+
+```
+Query → Vector Search (Stage 1) → API Reranker (Stage 2) → Ranked Results
+         ↓                        ↓
+    Retrieve 5x candidates     Re-score with cross-encoder
+```
+
+### Key Components
+
+- **`src/reranking/config.ts`**: Configuration management with environment variable loading
+- **`src/reranking/api-reranker.ts`**: API-based reranker supporting multiple providers
+- **`src/document-manager.ts`**: Integration of two-stage retrieval in query pipeline
+
+### Supported Providers
+
+1. **Cohere** (default): `rerank-multilingual-v3.0`
+2. **Jina AI**: `jina-reranker-v1-base-en`
+3. **OpenAI**: Custom models via OpenAI-compatible endpoints
+4. **Custom**: Any OpenAI-compatible reranking API
+
+### Configuration
+
+```bash
+# Enable/disable reranking (default: true)
+MCP_RERANKING_ENABLED=true
+
+# Provider selection (cohere, jina, openai, custom)
+MCP_RERANKING_PROVIDER=cohere
+
+# API key for the reranking service
+MCP_RERANKING_API_KEY=your-api-key
+
+# Model name
+MCP_RERANKING_MODEL=rerank-multilingual-v3.0
+
+# Base URL (for custom providers)
+MCP_RERANKING_BASE_URL=https://api.cohere.ai/v1
+
+# Maximum candidates for reranking (default: 50)
+MCP_RERANKING_MAX_CANDIDATES=50
+
+# Top K results to return (default: 10)
+MCP_RERANKING_TOP_K=10
+
+# Request timeout in ms (default: 30000)
+MCP_RERANKING_TIMEOUT=30000
+```
+
+### Development Guidelines
+
+#### Adding New Providers
+
+To add a new reranking provider:
+
+1. Update `RerankerProviderType` in `src/types.ts`
+2. Add provider-specific logic in `src/reranking/api-reranker.ts`
+3. Update configuration validation in `src/reranking/config.ts`
+4. Add tests in `src/reranking/__tests__/reranker.test.ts`
+
+#### Testing Reranking
+
+```bash
+# Run reranking-specific tests
+npm test -- src/reranking/__tests__/
+
+# Run performance benchmarks
+npm test -- src/reranking/__tests__/performance.test.ts
+
+# Test with real API (requires API key)
+MCP_RERANKING_ENABLED=true MCP_RERANKING_API_KEY=your-key npm run inspect
+```
+
+#### Per-Query Override
+
+Users can override reranking on a per-query basis:
+
+```typescript
+const results = await documentManager.query(query, {
+    useReranking: false  // Disable reranking for this query
+});
+```
+
+#### Error Handling
+
+The reranking system implements graceful degradation:
+- API failures fall back to vector-only search
+- Timeouts are configurable and handled
+- Invalid configurations are validated at startup
+- Errors are logged but don't break the query pipeline
+
+### Performance Considerations
+
+- **Candidate Retrieval**: Retrieves 5x the requested results as candidates
+- **API Latency**: Expect 100-500ms additional latency per query
+- **Rate Limits**: Respect provider rate limits (Cohere: 1000 calls/min)
+- **Cost**: API-based reranking has per-call costs
+
+### Testing Strategy
+
+1. **Unit Tests**: Test configuration, validation, and provider logic
+2. **Integration Tests**: Test DocumentManager integration with mocked APIs
+3. **Performance Tests**: Benchmark latency and throughput
+4. **Manual Testing**: Test with real queries and API keys
+
+### Future Enhancements
+
+Potential areas for contribution:
+- Local model support (e.g., using transformers.js)
+- Caching layer for frequently reranked queries
+- Batch reranking for multiple queries
+- Custom scoring functions
+- A/B testing framework for reranking models
 
 ### Key Components
 

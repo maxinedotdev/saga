@@ -179,6 +179,8 @@ export interface QueryOptions {
     offset?: number;
     include_metadata?: boolean;
     filters?: MetadataFilter;
+    /** Enable/disable reranking for this query (overrides global setting) */
+    useReranking?: boolean;
 }
 
 /**
@@ -277,4 +279,82 @@ export interface MultiProviderManager<T, P> {
     markSuccess(providerIndex: number): void;
     markFailure(providerIndex: number): void;
     getHealthyProvider(): P | null;
+}
+
+// ============================================================================
+// Reranking Types
+// ============================================================================
+
+/**
+ * Options for reranking operations
+ */
+export interface RerankOptions {
+    /** Number of top results to return (default: 10) */
+    topK?: number;
+    /** Maximum number of candidates to rerank (default: 50) */
+    maxCandidates?: number;
+}
+
+/**
+ * Result from reranking operation
+ */
+export interface RerankResult {
+    /** Original index of the document in the input array */
+    index: number;
+    /** Relevance score (0-1, higher is better) */
+    score: number;
+}
+
+/**
+ * Reranker interface for implementing different reranking providers
+ */
+export interface Reranker {
+    /**
+     * Rerank documents based on query relevance
+     * @param query - The search query
+     * @param documents - Array of document contents to rerank
+     * @param options - Optional reranking configuration
+     * @returns Promise resolving to sorted reranking results
+     */
+    rerank(query: string, documents: string[], options?: RerankOptions): Promise<RerankResult[]>;
+
+    /**
+     * Check if the reranker is ready to use
+     * @returns True if the reranker is initialized and ready
+     */
+    isReady(): boolean;
+
+    /**
+     * Get information about the reranker model
+     * @returns Object containing model name and type
+     */
+    getModelInfo(): {
+        name: string;
+        type: 'api' | 'local';
+    };
+}
+
+/**
+ * Provider type for reranking implementations
+ */
+export type RerankerProviderType = 'cohere' | 'jina' | 'openai' | 'custom';
+
+/**
+ * Configuration for a reranking provider
+ */
+export interface RerankerConfig {
+    /** Provider type */
+    provider: RerankerProviderType;
+    /** API base URL (for API-based providers) */
+    baseUrl?: string;
+    /** API key (for API-based providers) */
+    apiKey?: string;
+    /** Model name to use */
+    model: string;
+    /** Maximum number of candidates to rerank */
+    maxCandidates: number;
+    /** Default number of results to return */
+    topK: number;
+    /** Request timeout in milliseconds */
+    timeout: number;
 }
