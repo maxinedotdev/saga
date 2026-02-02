@@ -1087,6 +1087,7 @@ export class DocumentManager {
             }
             
             await findFilesRecursive(this.uploadsDir);
+            console.error(`[DocumentManager] Found ${files.length} files in uploads directory (following symlinks)`);
 
             for (const filePath of files) {
                 try {
