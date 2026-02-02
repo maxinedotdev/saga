@@ -85,6 +85,70 @@ process.on('exit', (code: number) => {
 // END DIAGNOSTIC LOGGING
 // ============================================
 
+// ============================================
+// MLX AUTO-CONFIGURATION
+// ============================================
+async function initializeMlxAutoConfig() {
+    console.error('[MLX Auto-Config] Starting MLX auto-configuration...');
+    
+    try {
+        // Import MLX-related modules
+        const { isAppleSilicon, logPlatformInfo } = await import('./reranking/apple-silicon-detection.js');
+        const { downloadModel, getDefaultModelPath } = await import('./reranking/model-downloader.js');
+        const { RERANKING_CONFIG } = await import('./reranking/config.js');
+        
+        // Log platform information
+        logPlatformInfo();
+        
+        // Only proceed if Apple Silicon is detected and MLX provider is configured
+        if (!isAppleSilicon()) {
+            console.error('[MLX Auto-Config] Not running on Apple Silicon, skipping MLX setup');
+            return;
+        }
+        
+        if (RERANKING_CONFIG.provider !== 'mlx') {
+            console.error(`[MLX Auto-Config] MLX provider not selected (current: ${RERANKING_CONFIG.provider}), skipping auto-setup`);
+            return;
+        }
+        
+        console.error('[MLX Auto-Config] MLX provider configured, checking model availability...');
+        
+        // Download model in background (don't block startup)
+        const modelPath = getDefaultModelPath();
+        console.error(`[MLX Auto-Config] Model path: ${modelPath}`);
+        
+        // Start download in background
+        downloadModel({ localPath: modelPath }, (progress) => {
+            if (progress.stage === 'downloading') {
+                console.error(`[MLX Auto-Config] ${progress.message}`);
+            } else if (progress.stage === 'complete') {
+                console.error(`[MLX Auto-Config] ${progress.message}`);
+            }
+        }).then((result) => {
+            if (result.success) {
+                console.error(`[MLX Auto-Config] Model ${result.downloaded ? 'downloaded' : 'already exists'} at ${result.modelPath}`);
+            } else {
+                console.error(`[MLX Auto-Config] Model setup failed: ${result.error}`);
+                console.error('[MLX Auto-Config] MLX reranker will not be available');
+            }
+        }).catch((error) => {
+            console.error(`[MLX Auto-Config] Error during model setup: ${error}`);
+            console.error('[MLX Auto-Config] MLX reranker will not be available');
+        });
+        
+    } catch (error) {
+        console.error('[MLX Auto-Config] Error during auto-configuration:', error);
+        console.error('[MLX Auto-Config] Continuing without MLX support');
+    }
+}
+
+// Initialize MLX auto-configuration (non-blocking)
+initializeMlxAutoConfig();
+
+// ============================================
+// END MLX AUTO-CONFIGURATION
+// ============================================
+
 // Initialize server
 const server = new FastMCP({
     name: "Documentation Server",
