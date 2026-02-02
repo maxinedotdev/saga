@@ -7,3 +7,4 @@
 
 export { LanceDBAdapter, createVectorDatabase } from './lance-db.js';
 export { migrateFromJson } from './migrate.js';
+export { LanceDBV1 } from './lance-db-v1.js';
