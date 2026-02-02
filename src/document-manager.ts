@@ -99,10 +99,16 @@ export class DocumentManager {
     private rerankingEnabled: boolean = false;
 
     constructor(embeddingProvider: EmbeddingProvider, vectorDatabase?: VectorDatabase) {
+        console.error(`[DocumentManager] ${getTimestamp()} CONSTRUCTOR START`);
+        console.error(`[DocumentManager] ${getTimestamp()} Memory: ${getMemoryUsage()}`);
+
         // Always use default paths
         const baseDir = getDefaultDataDir();
         this.dataDir = path.join(baseDir, 'data');
         this.uploadsDir = path.join(baseDir, 'uploads');
+
+        console.error(`[DocumentManager] ${getTimestamp()} Data dir: ${this.dataDir}`);
+        console.error(`[DocumentManager] ${getTimestamp()} Uploads dir: ${this.uploadsDir}`);
 
         this.embeddingProvider = embeddingProvider;
         this.intelligentChunker = new IntelligentChunker(this.embeddingProvider);
@@ -182,24 +188,35 @@ export class DocumentManager {
         } else {
             console.error(`[DocumentManager] Reranking is disabled. Set MCP_RERANKING_ENABLED=true to enable.`);
         }
-        
+
+        console.error(`[DocumentManager] ${getTimestamp()} About to call ensureDataDir()...`);
         this.ensureDataDir();
+        console.error(`[DocumentManager] ${getTimestamp()} ensureDataDir() completed`);
+
+        console.error(`[DocumentManager] ${getTimestamp()} About to call ensureUploadsDir()...`);
         this.ensureUploadsDir();
-        
+        console.error(`[DocumentManager] ${getTimestamp()} ensureUploadsDir() completed`);
+
         // Initialize indexing with error handling
         if (this.useIndexing) {
+            console.error(`[DocumentManager] ${getTimestamp()} About to initialize DocumentIndex...`);
             try {
                 this.documentIndex = new DocumentIndex(this.dataDir);
+                console.error(`[DocumentManager] ${getTimestamp()} DocumentIndex initialized successfully`);
             } catch (error) {
                 console.warn('[DocumentManager] Indexing disabled due to error:', error);
                 this.useIndexing = false;
             }
+        } else {
+            console.error(`[DocumentManager] ${getTimestamp()} Indexing disabled by config`);
         }
-        
+
         // Initialize vector database with error handling
         // Note: We initialize asynchronously in the background to avoid blocking the constructor
         if (this.useVectorDb) {
+            console.error(`[DocumentManager] ${getTimestamp()} About to create vector database...`);
             this.vectorDatabase = vectorDatabase || this.createVectorDatabase();
+            console.error(`[DocumentManager] ${getTimestamp()} Vector database created, starting async initialization...`);
             // Initialize asynchronously without blocking constructor, but store the promise
             this.vectorDbInitPromise = this.initializeVectorDatabase().catch(error => {
                 console.error('[DocumentManager] Vector database initialization failed:', error);
@@ -208,7 +225,13 @@ export class DocumentManager {
                 this.vectorDbInitPromise = null;
                 // Gracefully degrade - server continues without vector search capabilities
             });
+            console.error(`[DocumentManager] ${getTimestamp()} Vector DB initialization promise stored (async)`);
+        } else {
+            console.error(`[DocumentManager] ${getTimestamp()} Vector DB disabled by config`);
         }
+
+        console.error(`[DocumentManager] ${getTimestamp()} CONSTRUCTOR END`);
+        console.error(`[DocumentManager] ${getTimestamp()} Memory: ${getMemoryUsage()}`);
     }
 
     /**

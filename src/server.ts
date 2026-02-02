@@ -150,13 +150,15 @@ initializeMlxAutoConfig();
 // ============================================
 
 // Initialize server
+console.error(`[SagaServer] ${getTimestamp()} About to create FastMCP server...`);
+
 const server = new FastMCP({
     name: "Documentation Server",
     version: "1.0.0",
 });
 
 console.error(`[Server] FastMCP server initialized`);
-console.error(`[SagaServer] ${getTimestamp()} FastMCP server created`);
+console.error(`[SagaServer] ${getTimestamp()} FastMCP server created successfully`);
 
 // Global tool error handler wrapper
 function wrapToolHandler<T extends any[]>(
@@ -865,6 +867,11 @@ server.addTool({
 // });
 
 // Start the server
+console.error(`[SagaServer] ${getTimestamp()} About to start server with stdio transport...`);
+console.error(`[SagaServer] ${getTimestamp()} Memory before server.start(): ${getMemoryUsage()}`);
+
 server.start({
     transportType: "stdio",
 });
+
+console.error(`[SagaServer] ${getTimestamp()} Server started successfully!`);
