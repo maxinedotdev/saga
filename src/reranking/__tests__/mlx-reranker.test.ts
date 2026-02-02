@@ -302,6 +302,7 @@ describe('Configuration with MLX', () => {
             process.env.MCP_RERANKING_CANDIDATES = '50';
             process.env.MCP_RERANKING_TOP_K = '10';
             process.env.MCP_RERANKING_TIMEOUT = '60000';
+            process.env.MCP_RERANKING_API_KEY = 'test-api-key';
 
             const config = getRerankingConfig();
 
@@ -320,6 +321,7 @@ describe('Configuration with MLX', () => {
             delete process.env.MCP_RERANKING_CANDIDATES;
             delete process.env.MCP_RERANKING_TOP_K;
             delete process.env.MCP_RERANKING_TIMEOUT;
+            delete process.env.MCP_RERANKING_API_KEY;
         });
     });
 
