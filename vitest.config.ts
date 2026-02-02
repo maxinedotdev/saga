@@ -8,6 +8,9 @@ export default defineConfig({
     include: ['**/*.test.ts'],
     setupFiles: ['./src/__tests__/vitest-setup.ts'],
     maxWorkers: 1,
+    // Set a longer timeout for tests (120 seconds)
+    // Tests involving embedding operations with multiple documents can take longer
+    testTimeout: 120000,
     // Suppress console output during tests to reduce verbosity
     // This prevents large amounts of debug logging from cluttering test results
     reporters: process.env.CI ? ['junit', 'verbose'] : ['default'],

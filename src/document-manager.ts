@@ -125,16 +125,62 @@ export class DocumentManager {
         
         // Initialize reranker if enabled
         this.rerankingEnabled = isRerankingEnabled();
+        console.error(`[DocumentManager] Reranking enabled: ${this.rerankingEnabled}`);
+        
         if (this.rerankingEnabled) {
             try {
                 const config = getRerankingConfig();
+                
+                // Log full configuration state for debugging
+                console.error(`[DocumentManager] Reranker configuration:`);
+                console.error(`  - Provider: ${config.provider}`);
+                console.error(`  - Base URL: ${config.baseUrl}`);
+                console.error(`  - Model: ${config.model}`);
+                console.error(`  - Has API Key: ${!!config.apiKey}`);
+                console.error(`  - Timeout: ${config.timeout}ms`);
+                console.error(`  - Max Candidates: ${config.maxCandidates}`);
+                console.error(`  - Top K: ${config.topK}`);
+                
+                // Validate configuration before initialization
+                if (!config.baseUrl) {
+                    throw new Error('MCP_RERANKING_BASE_URL is not set');
+                }
+                if (!config.model) {
+                    throw new Error('MCP_RERANKING_MODEL is not set');
+                }
+                if (config.provider !== 'custom' && !config.apiKey) {
+                    throw new Error(`MCP_RERANKING_API_KEY is required for provider '${config.provider}'. Set it to your actual API key, or use provider='custom' for local endpoints like LM Studio.`);
+                }
+                
                 this.reranker = new ApiReranker(config);
-                console.error(`[DocumentManager] Reranker initialized with model: ${config.model}`);
+                console.error(`[DocumentManager] Reranker initialized successfully with model: ${config.model}`);
             } catch (error) {
-                console.error('[DocumentManager] Failed to initialize reranker:', error);
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                const errorStack = error instanceof Error ? error.stack : undefined;
+                
+                console.error(`[DocumentManager] ============================================`);
+                console.error(`[DocumentManager] RERANKER INITIALIZATION FAILED`);
+                console.error(`[DocumentManager] ============================================`);
+                console.error(`[DocumentManager] Error: ${errorMessage}`);
+                if (errorStack) {
+                    console.error(`[DocumentManager] Stack trace:`);
+                    console.error(errorStack);
+                }
+                console.error(`[DocumentManager] ============================================`);
+                console.error(`[DocumentManager] Troubleshooting steps:`);
+                console.error(`[DocumentManager] 1. Check that MCP_RERANKING_ENABLED=true`);
+                console.error(`[DocumentManager] 2. Verify MCP_RERANKING_PROVIDER matches your base URL`);
+                console.error(`[DocumentManager] 3. Ensure MCP_RERANKING_API_KEY is set (unless using LM Studio)`);
+                console.error(`[DocumentManager] 4. Confirm MCP_RERANKING_MODEL is supported by your provider`);
+                console.error(`[DocumentManager] 5. Test your API key and endpoint with curl`);
+                console.error(`[DocumentManager] 6. See .env.example for working configuration examples`);
+                console.error(`[DocumentManager] ============================================`);
+                
                 this.rerankingEnabled = false;
                 this.reranker = null;
             }
+        } else {
+            console.error(`[DocumentManager] Reranking is disabled. Set MCP_RERANKING_ENABLED=true to enable.`);
         }
         
         this.ensureDataDir();
