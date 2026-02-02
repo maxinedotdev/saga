@@ -294,11 +294,11 @@ describe('Configuration', () => {
 			delete process.env.MCP_RERANKING_CANDIDATES;
 			delete process.env.MCP_RERANKING_TOP_K;
 			delete process.env.MCP_RERANKING_TIMEOUT;
-
-			// Note: This will throw validation error because API key is missing
-			// when enabled. We can't test defaults without providing API key.
-			// This is expected behavior.
-			process.env.MCP_RERANKING_ENABLED = 'false';
+			
+			// Disable auto-configuration and enabled flag to test default values
+			process.env.MCP_RERANKING_AUTO_CONFIGURE_MLX = 'false';
+			process.env.MCP_RERANKING_PROVIDER = 'cohere';
+			process.env.MCP_RERANKING_ENABLED = 'false';  // Disable to avoid validation error
 
 			const config = getRerankingConfig();
 
@@ -309,6 +309,8 @@ describe('Configuration', () => {
 			expect(config.topK).toBe(10);
 			expect(config.timeout).toBe(30000);
 
+			delete process.env.MCP_RERANKING_AUTO_CONFIGURE_MLX;
+			delete process.env.MCP_RERANKING_PROVIDER;
 			delete process.env.MCP_RERANKING_ENABLED;
 		});
 
@@ -364,10 +366,12 @@ describe('Configuration', () => {
 
 		it('should return false when API key is missing', () => {
 			process.env.MCP_RERANKING_ENABLED = 'true';
+			process.env.MCP_RERANKING_PROVIDER = 'cohere';  // Set provider to cohere to avoid MLX auto-config
 			delete process.env.MCP_RERANKING_API_KEY;
 			expect(isRerankingEnabled()).toBe(false);
 
 			delete process.env.MCP_RERANKING_ENABLED;
+			delete process.env.MCP_RERANKING_PROVIDER;
 		});
 
 		it('should return true by default when not set', () => {

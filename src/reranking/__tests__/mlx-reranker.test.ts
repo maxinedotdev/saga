@@ -338,11 +338,12 @@ describe('Configuration with MLX', () => {
         it('should return false when MLX model path is missing', () => {
             process.env.MCP_RERANKING_ENABLED = 'true';
             process.env.MCP_RERANKING_PROVIDER = 'mlx';
-            delete process.env.MCP_RERANKING_MLX_MODEL_PATH;
+            process.env.MCP_RERANKING_MLX_MODEL_PATH = '';  // Explicitly set to empty string
             expect(isRerankingEnabled()).toBe(false);
 
             delete process.env.MCP_RERANKING_ENABLED;
             delete process.env.MCP_RERANKING_PROVIDER;
+            delete process.env.MCP_RERANKING_MLX_MODEL_PATH;
         });
     });
 });
