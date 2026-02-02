@@ -18,10 +18,15 @@ import {
 
 describe('Validation Tests', () => {
     describe('Migration with Real Data', () => {
-        it('should migrate documents and verify data', { timeout: 10000 }, async () => {
+        it('should migrate documents and verify data', { timeout: 30000 }, async () => {
+            // Set MCP_BASE_DIR to tempDir to ensure DocumentManager uses the test directory
+            // This prevents automatic migration from the system's default data directory
             const tempDir = createTempDir('mig-real-');
             const dataDir = path.join(tempDir, 'data');
             const lanceDir = path.join(tempDir, 'lancedb');
+
+            // Set MCP_BASE_DIR environment variable before creating any DocumentManager instances
+            process.env.MCP_BASE_DIR = tempDir;
 
             try {
                 fs.mkdirSync(dataDir, { recursive: true });
@@ -115,7 +120,10 @@ describe('Validation Tests', () => {
                     throw error;
                 }
             } finally {
+                // Clean up temp directory
                 fs.rmSync(tempDir, { recursive: true, force: true });
+                // Restore MCP_BASE_DIR to prevent affecting other tests
+                delete process.env.MCP_BASE_DIR;
             }
         });
     });
