@@ -167,7 +167,7 @@ export async function crawlDocumentation(
             }
 
             // Detect language and check allowlist before ingestion
-            const detectedLanguages = detectLanguages(normalizedText, confidenceThreshold);
+            const detectedLanguages = await detectLanguages(normalizedText, confidenceThreshold);
             if (!isLanguageAllowed(detectedLanguages, acceptedLanguages)) {
                 console.warn(`[Crawler] Page rejected: language '${detectedLanguages.join(', ')}' not in accepted languages list (${parsedUrl.toString()})`);
                 pagesSkipped += 1;

@@ -369,6 +369,11 @@ export class DocumentManager {
         return path.resolve(this.uploadsDir);
     }
 
+    // Getter for embedding provider
+    getEmbeddingProvider(): EmbeddingProvider {
+        return this.embeddingProvider;
+    }
+
     private getDocumentPath(id: string): string {
         return path.join(this.dataDir, `${id}.json`);
     }

@@ -8,7 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DocumentManager } from '../document-manager.js';
 import { createVectorDatabase, LanceDBAdapter } from '../vector-db/index.js';
-import { createTempDir, withBaseDir, withBaseDirAndDocumentManager, withEnv } from './test-utils.js';
+import { createTempDir, withBaseDir, withBaseDirAndDocumentManager, withEnv, createTestEmbeddingProvider } from './test-utils.js';
 import {
     RequestTimeoutError,
     ENV_TIMEOUT_EMBEDDING,
@@ -186,12 +186,7 @@ describe('Embedding Timeout Integration Tests', () => {
                 'MCP_EMBEDDING_BASE_URL': 'http://localhost:1234',
                 'MCP_EMBEDDING_MODEL': 'text-embedding-3-small',
             }, async () => {
-                const { OpenAiEmbeddingProvider } = await import('../embedding-provider.js');
-
-                const provider = new OpenAiEmbeddingProvider(
-                    'http://localhost:1234/v1',
-                    'text-embedding-3-small'
-                );
+                const provider = createTestEmbeddingProvider();
 
                 expect(provider.isAvailable()).toBe(true);
                 expect(provider.getModelName()).toBe('text-embedding-3-small');
@@ -207,12 +202,7 @@ describe('Embedding Timeout Integration Tests', () => {
                 'MCP_EMBEDDING_BASE_URL': 'http://localhost:1234',
                 'MCP_EMBEDDING_MODEL': 'text-embedding-3-small',
             }, async () => {
-                const { OpenAiEmbeddingProvider } = await import('../embedding-provider.js');
-
-                const provider = new OpenAiEmbeddingProvider(
-                    'http://localhost:1234/v1',
-                    'text-embedding-3-small'
-                );
+                const provider = createTestEmbeddingProvider();
 
                 try {
                     await provider.generateEmbedding('test text for embedding');
@@ -238,11 +228,7 @@ describe('Embedding Timeout Integration Tests', () => {
             }, async () => {
                 expect(process.env[ENV_TIMEOUT_EMBEDDING]).toBe('20000');
 
-                const { OpenAiEmbeddingProvider } = await import('../embedding-provider.js');
-                const provider = new OpenAiEmbeddingProvider(
-                    'http://localhost:1234/v1',
-                    'text-embedding-3-small'
-                );
+                const provider = createTestEmbeddingProvider();
 
                 expect(provider.isAvailable()).toBe(true);
             });
@@ -261,11 +247,7 @@ describe('Embedding Timeout Integration Tests', () => {
                 expect(process.env[ENV_TIMEOUT_GLOBAL]).toBe('12000');
                 expect(process.env[ENV_TIMEOUT_EMBEDDING]).toBeUndefined();
 
-                const { OpenAiEmbeddingProvider } = await import('../embedding-provider.js');
-                const provider = new OpenAiEmbeddingProvider(
-                    'http://localhost:1234/v1',
-                    'text-embedding-3-small'
-                );
+                const provider = createTestEmbeddingProvider();
 
                 expect(provider.isAvailable()).toBe(true);
             });

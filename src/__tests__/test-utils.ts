@@ -2,11 +2,20 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { CodeBlock, Document, DocumentChunk, EmbeddingProvider } from '../types.js';
-import { createLazyEmbeddingProvider } from '../embedding-provider.js';
+import { createLazyEmbeddingProvider, clearEmbeddingProviderCache } from '../embedding-provider.js';
 import { DocumentManager } from '../document-manager.js';
 import { LanceDBAdapter } from '../vector-db/index.js';
 
 type EnvMap = Record<string, string | undefined>;
+
+/**
+ * Clear all embedding provider caches (global cache)
+ * Useful for test isolation when configuration changes
+ */
+export function clearTestEmbeddingProviderCache(): void {
+    clearEmbeddingProviderCache();
+    console.error('[test-utils] Global embedding provider cache cleared');
+}
 
 export const createTempDir = (prefix: string): string => {
     return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -89,7 +98,10 @@ export const createTestEmbeddingProvider = (): EmbeddingProvider => {
         }
 
         try {
-            return createLazyEmbeddingProvider();
+            // Use global cache from embedding-provider.ts to prevent model reloading across tests
+            const provider = createLazyEmbeddingProvider();
+            console.error('[test-utils] Using global cached embedding provider');
+            return provider;
         } catch (error) {
             throw new Error('[test-utils] Failed to create OpenAI-compatible embedding provider. Tests require a valid embedding provider configuration.');
         }
@@ -97,6 +109,24 @@ export const createTestEmbeddingProvider = (): EmbeddingProvider => {
 
     throw new Error('[test-utils] Tests require MCP_EMBEDDING_PROVIDER=openai and MCP_EMBEDDING_BASE_URL to be set. SimpleEmbeddingProvider has been removed.');
 };
+
+/**
+ * Warm up the embedding provider by generating a test embedding
+ * This ensures the model is loaded before tests start
+ */
+export async function warmupEmbeddingProvider(): Promise<void> {
+    const provider = createTestEmbeddingProvider();
+    console.error('[test-utils] Warming up embedding provider...');
+    
+    try {
+        // Generate a test embedding to ensure the model is loaded
+        const testEmbedding = await provider.generateEmbedding('test');
+        console.error(`[test-utils] Embedding provider warmed up successfully (${testEmbedding.length} dimensions)`);
+    } catch (error) {
+        console.error('[test-utils] Failed to warm up embedding provider:', error);
+        throw error;
+    }
+}
 
 export const withVectorDb = async <T>(
     fn: (vectorDb: LanceDBAdapter) => Promise<T> | T,

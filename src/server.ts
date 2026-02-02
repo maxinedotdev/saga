@@ -279,8 +279,8 @@ server.addTool({
                 throw new Error('Vector database is not available. Enable MCP_VECTOR_DB=true to use document search.');
             }
             
-            // Generate query embedding
-            const embeddingProvider = createLazyEmbeddingProvider(process.env.MCP_EMBEDDING_MODEL);
+            // Generate query embedding using documentManager's embedding provider
+            const embeddingProvider = manager.getEmbeddingProvider();
             const queryEmbedding = await embeddingProvider.generateEmbedding(args.query);
             
             // Search with document filter
@@ -652,8 +652,8 @@ server.addTool({
                 throw new Error('Vector database is not available. Enable MCP_VECTOR_DB=true to use code block search.');
             }
             
-            // Generate query embedding
-            const embeddingProvider = createLazyEmbeddingProvider(process.env.MCP_EMBEDDING_MODEL);
+            // Generate query embedding using documentManager's embedding provider
+            const embeddingProvider = manager.getEmbeddingProvider();
             const queryEmbedding = await embeddingProvider.generateEmbedding(args.query);
             
             // Use environment variable for default limit if not provided

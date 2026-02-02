@@ -7,10 +7,14 @@ import eld from 'eld';
 
 // Initialize eld with the default dataset
 let eldInitialized = false;
-const eldInitPromise = eld.load().then(() => {
+const eldInitPromise = (async () => {
+    const loader = (eld as { load?: (size?: string) => Promise<void | true> }).load;
+    if (typeof loader === 'function') {
+        await loader();
+    }
     eldInitialized = true;
     console.log('[LanguageDetection] ELD dataset loaded successfully');
-}).catch((error) => {
+})().catch((error: unknown) => {
     console.error('[LanguageDetection] Failed to load ELD dataset:', error);
     throw error;
 });

@@ -60,7 +60,7 @@ export function validateRerankingConfig(): void {
     }
 
     // Validate provider
-    const validProviders: RerankerProviderType[] = ['cohere', 'jina', 'openai', 'custom'];
+    const validProviders: RerankerProviderType[] = ['cohere', 'jina', 'openai', 'custom', 'lmstudio'];
     if (!validProviders.includes(config.provider)) {
         throw new Error(
             `Invalid reranking provider: ${config.provider}. ` +
@@ -68,8 +68,8 @@ export function validateRerankingConfig(): void {
         );
     }
 
-    // Validate API key for API-based providers (except custom which may not need it)
-    if (config.provider !== 'custom' && !config.apiKey) {
+    // Validate API key for API-based providers (except custom and lmstudio which may not need it)
+    if (config.provider !== 'custom' && config.provider !== 'lmstudio' && !config.apiKey) {
         throw new Error(
             `API key is required for ${config.provider} provider. ` +
             `Set MCP_RERANKING_API_KEY environment variable.`

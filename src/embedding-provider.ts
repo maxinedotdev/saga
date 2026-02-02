@@ -253,6 +253,39 @@ export class MultiEmbeddingProvider implements EmbeddingProvider {
     }
 }
 
+// ============================================================================
+// Singleton Provider Instance Management
+// ============================================================================
+
+let cachedEmbeddingProvider: EmbeddingProvider | null = null;
+let cachedProviderConfig: string | null = null;
+let providerCreationCount = 0;
+
+/**
+ * Get a cached embedding provider instance based on configuration
+ * This ensures only one provider is created and reused across the application
+ */
+function getCachedEmbeddingProvider(createFn: () => EmbeddingProvider): EmbeddingProvider {
+    const currentConfig = JSON.stringify({
+        multiConfig: parseMultiEmbeddingProviderConfig(),
+        baseUrl: process.env.MCP_EMBEDDING_BASE_URL,
+        model: process.env.MCP_EMBEDDING_MODEL,
+        apiKey: process.env.MCP_EMBEDDING_API_KEY ? '[REDACTED]' : undefined,
+    });
+
+    // Return cached instance if config hasn't changed
+    if (cachedEmbeddingProvider && cachedProviderConfig === currentConfig) {
+        return cachedEmbeddingProvider;
+    }
+
+    // Create new instance and cache it
+    providerCreationCount++;
+    cachedEmbeddingProvider = createFn();
+    cachedProviderConfig = currentConfig;
+
+    return cachedEmbeddingProvider;
+}
+
 const DEFAULT_LOCAL_OPENAI_BASE_URL = 'http://127.0.0.1:1234';
 const DEFAULT_OPENAI_EMBEDDING_MODEL = 'text-embedding-multilingual-e5-large-instruct';
 
@@ -298,12 +331,15 @@ function resolveOpenAiEmbeddingConfig(modelName?: string): { baseUrl: string; mo
 export class OpenAiEmbeddingProvider implements EmbeddingProvider {
     private dimensions: number | null = null;
     private cache: EmbeddingCache | null = null;
+    private instanceId: string;
 
     constructor(
         private baseUrl: string,
         private modelName: string,
         private apiKey?: string
     ) {
+        this.instanceId = `${this.constructor.name}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        
         if (process.env.MCP_CACHE_ENABLED !== 'false') {
             try {
                 this.cache = new EmbeddingCache();
@@ -426,29 +462,33 @@ function createProviderFromConfig(config: EmbeddingProviderConfig): EmbeddingPro
 /**
  * Factory function to create the best available embedding provider
  * Supports both single-provider (legacy) and multi-provider modes
+ * Uses singleton pattern to ensure only one provider instance is created
  */
 export async function createEmbeddingProvider(modelName?: string): Promise<EmbeddingProvider> {
-    // Check for multi-provider configuration first
-    const multiConfig = parseMultiEmbeddingProviderConfig();
-    if (multiConfig) {
-        console.error('[createEmbeddingProvider] Using multi-provider mode');
-        const multiProvider = new MultiEmbeddingProvider(multiConfig, createProviderFromConfig);
-        
-        // Test the multi-provider setup
-        try {
-            await multiProvider.generateEmbedding('test');
-            console.error('[createEmbeddingProvider] Multi-provider initialized successfully');
-            return multiProvider;
-        } catch (error) {
-            console.error('[createEmbeddingProvider] Multi-provider test failed, falling back to legacy mode:', error);
-            // Fall through to legacy mode
+    const provider = getCachedEmbeddingProvider(() => {
+        // Check for multi-provider configuration first
+        const multiConfig = parseMultiEmbeddingProviderConfig();
+        if (multiConfig) {
+            console.error('[createEmbeddingProvider] Using multi-provider mode');
+            return new MultiEmbeddingProvider(multiConfig, createProviderFromConfig);
         }
+
+        // Legacy single-provider mode - only OpenAI is supported
+        console.error('[createEmbeddingProvider] Using legacy single-provider mode');
+        const config = resolveOpenAiEmbeddingConfig(modelName);
+        return new OpenAiEmbeddingProvider(config.baseUrl, config.model, config.apiKey);
+    });
+
+    // Test the provider setup (only on first creation)
+    try {
+        await provider.generateEmbedding('test');
+        console.error('[createEmbeddingProvider] Provider test successful');
+    } catch (error) {
+        console.error('[createEmbeddingProvider] Provider test failed:', error);
+        // Don't throw - the provider might still work for real requests
     }
 
-    // Legacy single-provider mode - only OpenAI is supported
-    console.error('[createEmbeddingProvider] Using legacy single-provider mode');
-    const config = resolveOpenAiEmbeddingConfig(modelName);
-    return new OpenAiEmbeddingProvider(config.baseUrl, config.model, config.apiKey);
+    return provider;
 }
 
 /**
@@ -459,19 +499,40 @@ export async function createEmbeddingProviderWithModel(modelName: string): Promi
 }
 
 /**
+ * Clear the cached embedding provider instance
+ * Useful for testing or when configuration changes dynamically
+ */
+export function clearEmbeddingProviderCache(): void {
+    cachedEmbeddingProvider = null;
+    cachedProviderConfig = null;
+    console.error('[EmbeddingProvider] Cache cleared');
+}
+
+/**
+ * Check if an embedding provider instance is cached
+ * Useful for debugging and monitoring
+ */
+export function isEmbeddingProviderCached(): boolean {
+    return cachedEmbeddingProvider !== null;
+}
+
+/**
  * Create embedding provider with lazy initialization (no immediate test)
  * Supports both single-provider (legacy) and multi-provider modes
+ * Uses singleton pattern to ensure only one provider instance is created
  */
 export function createLazyEmbeddingProvider(modelName?: string): EmbeddingProvider {
-    // Check for multi-provider configuration first
-    const multiConfig = parseMultiEmbeddingProviderConfig();
-    if (multiConfig) {
-        console.error('[createLazyEmbeddingProvider] Using multi-provider mode');
-        return new MultiEmbeddingProvider(multiConfig, createProviderFromConfig);
-    }
+    return getCachedEmbeddingProvider(() => {
+        // Check for multi-provider configuration first
+        const multiConfig = parseMultiEmbeddingProviderConfig();
+        if (multiConfig) {
+            console.error('[createLazyEmbeddingProvider] Using multi-provider mode');
+            return new MultiEmbeddingProvider(multiConfig, createProviderFromConfig);
+        }
 
-    // Legacy single-provider mode - only OpenAI is supported
-    console.error('[createLazyEmbeddingProvider] Using legacy single-provider mode');
-    const config = resolveOpenAiEmbeddingConfig(modelName);
-    return new OpenAiEmbeddingProvider(config.baseUrl, config.model, config.apiKey);
+        // Legacy single-provider mode - only OpenAI is supported
+        console.error('[createLazyEmbeddingProvider] Using legacy single-provider mode');
+        const config = resolveOpenAiEmbeddingConfig(modelName);
+        return new OpenAiEmbeddingProvider(config.baseUrl, config.model, config.apiKey);
+    });
 }

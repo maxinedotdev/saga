@@ -7,6 +7,7 @@ export default defineConfig({
     environment: 'node',
     include: ['**/*.test.ts'],
     setupFiles: ['./src/__tests__/vitest-setup.ts'],
+    maxWorkers: 1,
     // Suppress console output during tests to reduce verbosity
     // This prevents large amounts of debug logging from cluttering test results
     reporters: process.env.CI ? ['junit', 'verbose'] : ['default'],
