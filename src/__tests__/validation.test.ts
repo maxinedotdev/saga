@@ -8,8 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DocumentManager } from '../document-manager.js';
 import { createVectorDatabase, LanceDBAdapter } from '../vector-db/index.js';
-import { SimpleEmbeddingProvider } from '../embedding-provider.js';
-import { createTempDir, withBaseDir, withBaseDirAndDocumentManager, withBaseDirAndSearchEngine, withEnv } from './test-utils.js';
+import { createTempDir, withBaseDir, withBaseDirAndDocumentManager, withEnv } from './test-utils.js';
 import {
     RequestTimeoutError,
     ENV_TIMEOUT_EMBEDDING,
@@ -19,7 +18,7 @@ import {
 describe('Validation Tests', () => {
     describe('MCP Tools with Lance DB', () => {
         it('should support all MCP tool equivalents', async () => {
-            return await withBaseDirAndSearchEngine('mcp-tools-', async ({ baseDir, documentManager, searchEngine }) => {
+            return await withBaseDirAndDocumentManager('mcp-tools-', async ({ baseDir, documentManager }) => {
                 const doc1 = await documentManager.addDocument(
                     'Test Document',
                     'This is a test document for MCP tool validation.',
@@ -27,12 +26,17 @@ describe('Validation Tests', () => {
                 );
                 expect(doc1).toBeDefined();
 
+                if (!doc1) {
+                    throw new Error('doc1 should be defined');
+                }
+
                 const retrieved = await documentManager.getDocument(doc1.id);
                 expect(retrieved).not.toBeNull();
                 expect(retrieved?.id).toBe(doc1.id);
 
-                const searchResults = await documentManager.searchDocuments(doc1.id, 'test document', 5);
-                expect(searchResults.length).toBeGreaterThan(0);
+                // Test query() across all documents (document-specific search is now done via VectorDatabase directly in MCP tools)
+                const queryResults = await documentManager.query('test document', { limit: 5 });
+                expect(queryResults.results.length).toBeGreaterThan(0);
 
                 const allDocs = await documentManager.getAllDocuments();
                 expect(allDocs.length).toBe(1);
@@ -60,8 +64,9 @@ describe('Validation Tests', () => {
                 );
                 expect(doc2).toBeDefined();
 
-                const inDocResults = await searchEngine.searchDocument(doc2.id, 'search functionality', 5);
-                expect(inDocResults.length).toBeGreaterThan(0);
+                // Test query() across all documents (document-specific search is now done via VectorDatabase directly in MCP tools)
+                const inDocResults = await documentManager.query('search functionality', { limit: 5 });
+                expect(inDocResults.results.length).toBeGreaterThan(0);
 
                 const doc3 = await documentManager.addDocument(
                     'Crawl Doc 1',
@@ -81,31 +86,6 @@ describe('Validation Tests', () => {
     });
 
     describe('Embedding Providers', () => {
-        it('should work with SimpleEmbeddingProvider', async () => {
-            return await withBaseDir('embeddings-', async () => {
-                return await withEnv({ MCP_EMBEDDING_PROVIDER: undefined }, async () => {
-                    const simpleProvider = new SimpleEmbeddingProvider();
-                    const simpleEmbedding = await simpleProvider.generateEmbedding('test text');
-                    expect(simpleEmbedding.length).toBeGreaterThan(0);
-                    expect(simpleProvider.isAvailable()).toBe(true);
-
-                    const simpleVectorDB = new LanceDBAdapter(createTempDir('vector-test-'));
-                    await simpleVectorDB.initialize();
-                    const simpleDocManager = new DocumentManager(simpleProvider, simpleVectorDB);
-
-                    const simpleDoc = await simpleDocManager.addDocument(
-                        'Simple Provider Test',
-                        'Testing document with SimpleEmbeddingProvider.',
-                        { provider: 'transformers' }
-                    );
-                    expect(simpleDoc).toBeDefined();
-                    expect(simpleDoc?.chunks[0].embeddings?.length).toBeGreaterThan(0);
-
-                    await simpleVectorDB.close();
-                });
-            });
-        });
-
         it('should work with OpenAI provider when configured', async () => {
             const openaiKey = process.env.MCP_EMBEDDING_API_KEY || process.env.OPENAI_API_KEY;
             if (!openaiKey) {
@@ -181,12 +161,9 @@ describe('Validation Tests', () => {
                 const allDocs = await documentManager.getAllDocuments();
                 expect(allDocs.length).toBe(3);
 
-                const searchResults = await documentManager.searchDocuments(
-                    allDocs[0].id,
-                    'documentation',
-                    5
-                );
-                expect(searchResults.length).toBeGreaterThan(0);
+                // Test query() across all documents (document-specific search is now done via VectorDatabase directly in MCP tools)
+                const queryResults = await documentManager.query('documentation', { limit: 5 });
+                expect(queryResults.results.length).toBeGreaterThan(0);
 
                 const deleteResult = await documentManager.deleteCrawlSession('test-crawl');
                 expect(deleteResult.deleted).toBe(3);

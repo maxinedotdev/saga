@@ -1,5 +1,5 @@
 /**
- * Integration tests for DocumentManager and SearchEngine with Vector Database
+ * Integration tests for DocumentManager with Vector Database
  * Tests for integration with Lance DB (tasks 9.4, 9.5)
  */
 
@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createVectorDatabase } from '../vector-db/index.js';
-import { withBaseDirAndDocumentManager, withBaseDirAndSearchEngine, withTempDir } from './test-utils.js';
+import { withBaseDirAndDocumentManager, withTempDir } from './test-utils.js';
 
 describe('Integration Tests', () => {
     describe('DocumentManager Integration', () => {
@@ -39,15 +39,19 @@ describe('Integration Tests', () => {
                 );
                 expect(doc3).toBeDefined();
 
+                if (!doc1) {
+                    throw new Error('doc1 should be defined');
+                }
+
                 const retrieved = await documentManager.getDocument(doc1.id);
                 expect(retrieved).not.toBeNull();
                 expect(retrieved?.id).toBe(doc1.id);
                 expect(retrieved?.title).toBe(doc1.title);
 
-                const searchResults = await documentManager.searchDocuments(doc1.id, 'vector databases', 3);
-                expect(searchResults.length).toBeGreaterThan(0);
-                expect(searchResults.every(r => r.chunk.document_id === doc1.id)).toBe(true);
-                expect(searchResults.every(r => r.score >= 0 && r.score <= 1)).toBe(true);
+                // Test query() across all documents (document-specific search is now done via VectorDatabase directly in MCP tools)
+                const queryResults = await documentManager.query('vector databases', { limit: 3 });
+                expect(queryResults.results.length).toBeGreaterThan(0);
+                expect(queryResults.results.every(r => r.score >= 0 && r.score <= 1)).toBe(true);
 
                 const allDocs = await documentManager.getAllDocuments();
                 expect(allDocs.length).toBe(3);
@@ -69,7 +73,9 @@ describe('Integration Tests', () => {
                         { crawl_id: 'test-crawl-1' }
                     );
                     expect(doc).toBeDefined();
-                    crawlDocs.push(doc.id);
+                    if (doc) {
+                        crawlDocs.push(doc.id);
+                    }
                 }
 
                 const result = await documentManager.deleteCrawlSession('test-crawl-1');
@@ -80,51 +86,6 @@ describe('Integration Tests', () => {
                     const doc = await documentManager.getDocument(id);
                     expect(doc).toBeNull();
                 }
-            });
-        });
-    });
-
-    describe('SearchEngine Integration', () => {
-        it('should search within documents', async () => {
-            await withBaseDirAndSearchEngine('search-test-', async ({ documentManager, searchEngine }) => {
-                const doc1 = await documentManager.addDocument(
-                    'AI Fundamentals',
-                    'Artificial intelligence is a branch of computer science that aims to create intelligent machines.',
-                    { category: 'ai' }
-                );
-                expect(doc1).toBeDefined();
-
-                const doc2 = await documentManager.addDocument(
-                    'Machine Learning Basics',
-                    'Machine learning is a subset of AI that enables systems to learn from data.',
-                    { category: 'ml' }
-                );
-                expect(doc2).toBeDefined();
-
-                const doc3 = await documentManager.addDocument(
-                    'Deep Learning',
-                    'Deep learning uses neural networks with multiple layers to learn complex patterns.',
-                    { category: 'dl' }
-                );
-                expect(doc3).toBeDefined();
-
-                const inDocResults = await searchEngine.searchDocument(doc1.id, 'intelligent machines', 5);
-                expect(inDocResults.length).toBeGreaterThan(0);
-                expect(inDocResults.every(r => r.chunk.document_id === doc1.id)).toBe(true);
-
-                const mlResults = await searchEngine.searchDocument(doc2.id, 'data', 3);
-                expect(mlResults.length).toBeGreaterThan(0);
-
-                const sortedResults = await searchEngine.searchDocument(doc1.id, 'artificial intelligence', 5);
-                for (let i = 0; i < sortedResults.length - 1; i++) {
-                    expect(sortedResults[i].score).toBeGreaterThanOrEqual(sortedResults[i + 1].score);
-                }
-
-                const limitedResults = await searchEngine.searchDocument(doc1.id, 'computer', 2);
-                expect(limitedResults.length).toBeLessThanOrEqual(2);
-
-                const allDocs = await documentManager.getAllDocuments();
-                expect(allDocs.length).toBe(3);
             });
         });
     });

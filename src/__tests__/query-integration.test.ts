@@ -423,7 +423,8 @@ describe('AI Search Timeout Integration Tests', () => {
                         title: 'Test Document',
                         chunks: [],
                     }),
-                    searchDocuments: async () => [],
+                    // Note: searchDocuments() has been removed, but this mock is for testing timeout behavior
+                    // The actual searchDocumentWithAi implementation now uses VectorDatabase directly
                 };
 
                 try {

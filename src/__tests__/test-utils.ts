@@ -2,10 +2,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { CodeBlock, Document, DocumentChunk, EmbeddingProvider } from '../types.js';
-import { createLazyEmbeddingProvider, SimpleEmbeddingProvider } from '../embedding-provider.js';
+import { createLazyEmbeddingProvider } from '../embedding-provider.js';
 import { DocumentManager } from '../document-manager.js';
 import { LanceDBAdapter } from '../vector-db/index.js';
-import { SearchEngine } from '../search-engine.js';
 
 type EnvMap = Record<string, string | undefined>;
 
@@ -86,19 +85,17 @@ export const createTestEmbeddingProvider = (): EmbeddingProvider => {
 
     if (providerEnv === 'openai') {
         if (!process.env.MCP_EMBEDDING_BASE_URL) {
-            console.warn('[test-utils] MCP_EMBEDDING_PROVIDER=openai but MCP_EMBEDDING_BASE_URL is not set; falling back to SimpleEmbeddingProvider.');
-            return new SimpleEmbeddingProvider();
+            throw new Error('[test-utils] MCP_EMBEDDING_PROVIDER=openai but MCP_EMBEDDING_BASE_URL is not set. Tests require an OpenAI-compatible embedding provider.');
         }
 
         try {
             return createLazyEmbeddingProvider();
         } catch (error) {
-            console.warn('[test-utils] Failed to create OpenAI-compatible embedding provider; falling back to SimpleEmbeddingProvider.', error);
-            return new SimpleEmbeddingProvider();
+            throw new Error('[test-utils] Failed to create OpenAI-compatible embedding provider. Tests require a valid embedding provider configuration.');
         }
     }
 
-    return new SimpleEmbeddingProvider();
+    throw new Error('[test-utils] Tests require MCP_EMBEDDING_PROVIDER=openai and MCP_EMBEDDING_BASE_URL to be set. SimpleEmbeddingProvider has been removed.');
 };
 
 export const withVectorDb = async <T>(
@@ -142,28 +139,6 @@ export const withBaseDirAndDocumentManager = async <T>(
 ): Promise<T> => {
     return withBaseDir(basePrefix, async (baseDir) => {
         return await withDocumentManager((ctx) => fn({ ...ctx, baseDir }), options);
-    });
-};
-
-type SearchEngineHarness = DocumentManagerHarness & { searchEngine: SearchEngine };
-
-export const withSearchEngine = async <T>(
-    fn: (ctx: SearchEngineHarness) => Promise<T> | T,
-    options: { embeddingProvider?: EmbeddingProvider; vectorDbPrefix?: string } = {}
-): Promise<T> => {
-    return withDocumentManager(async (ctx) => {
-        const searchEngine = new SearchEngine(ctx.documentManager, ctx.embeddingProvider);
-        return await fn({ ...ctx, searchEngine });
-    }, options);
-};
-
-export const withBaseDirAndSearchEngine = async <T>(
-    basePrefix: string,
-    fn: (ctx: SearchEngineHarness & { baseDir: string }) => Promise<T> | T,
-    options: { embeddingProvider?: EmbeddingProvider; vectorDbPrefix?: string } = {}
-): Promise<T> => {
-    return withBaseDir(basePrefix, async (baseDir) => {
-        return await withSearchEngine((ctx) => fn({ ...ctx, baseDir }), options);
     });
 };
 
