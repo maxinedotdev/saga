@@ -6,6 +6,43 @@ This document describes the MLX-based reranker implementation for the Saga MCP s
 
 The MLX reranker provides fast, local document reranking using Apple's MLX framework and the Jina Reranker V3 MLX model. This implementation runs entirely on Apple Silicon (M1/M2/M3) chips without requiring API calls, making it ideal for testing and development environments.
 
+## Automatic Configuration
+
+**NEW:** The MLX reranker now supports automatic configuration on Apple Silicon!
+
+### How Auto-Configuration Works
+
+When Saga starts on an Apple Silicon Mac:
+
+1. **Platform Detection**: Saga automatically detects if running on Apple Silicon (M1/M2/M3)
+2. **Provider Selection**: MLX is automatically set as the default reranking provider
+3. **Model Path**: The default model path is set to `~/.saga/models/jina-reranker-v3-mlx`
+4. **Background Download**: The model is automatically downloaded in the background if not present
+5. **Fallback**: If MLX setup fails, Saga gracefully falls back to API-based rerankers
+
+### Environment Variables for Auto-Configuration
+
+```bash
+# Enable/disable auto-configuration (default: true)
+export MCP_RERANKING_AUTO_CONFIGURE_MLX=true
+
+# Override auto-detected provider (if you prefer API-based reranking)
+export MCP_RERANKING_PROVIDER=cohere
+
+# Override auto-detected model path
+export MCP_RERANKING_MLX_MODEL_PATH=/custom/path/to/model
+```
+
+### Disabling Auto-Configuration
+
+If you want to disable automatic MLX configuration:
+
+```bash
+export MCP_RERANKING_AUTO_CONFIGURE_MLX=false
+```
+
+This will use the default API-based reranker (Cohere) instead.
+
 ## Requirements
 
 ### Hardware
@@ -14,17 +51,32 @@ The MLX reranker provides fast, local document reranking using Apple's MLX frame
 ### Software
 - Python 3.8 or higher
 - MLX framework: `pip install mlx mlx-lm`
-- Jina Reranker V3 MLX model (downloaded locally)
+- Jina Reranker V3 MLX model (automatically downloaded or manually)
 
 ## Installation
 
-### 1. Install MLX Dependencies
+### Automatic Installation (Recommended)
+
+On Apple Silicon, simply start Saga. The auto-configuration will:
+
+1. Detect Apple Silicon
+2. Configure MLX as the default provider
+3. Download the model to `~/.saga/models/jina-reranker-v3-mlx` in the background
+4. Initialize the MLX reranker when ready
+
+No manual steps required!
+
+### Manual Installation
+
+If you prefer manual setup or need to troubleshoot:
+
+#### 1. Install MLX Dependencies
 
 ```bash
 pip install mlx mlx-lm
 ```
 
-### 2. Download Jina Reranker V3 MLX Model
+#### 2. Download Jina Reranker V3 MLX Model
 
 ```bash
 # Using Hugging Face CLI
@@ -34,7 +86,7 @@ huggingface-cli download jinaai/jina-reranker-v3-mlx --local-dir /path/to/model
 
 Or download directly from: https://huggingface.co/jinaai/jina-reranker-v3-mlx
 
-### 3. Configure Environment Variables
+#### 3. Configure Environment Variables
 
 Set the following environment variables to use the MLX reranker:
 
@@ -42,10 +94,10 @@ Set the following environment variables to use the MLX reranker:
 # Enable reranking
 export MCP_RERANKING_ENABLED=true
 
-# Use MLX provider
+# Use MLX provider (optional on Apple Silicon, auto-detected)
 export MCP_RERANKING_PROVIDER=mlx
 
-# Path to the downloaded MLX model
+# Path to the downloaded MLX model (optional, auto-detected)
 export MCP_RERANKING_MLX_MODEL_PATH=/path/to/jina-reranker-v3-mlx
 
 # Python executable (optional, defaults to 'python3')
