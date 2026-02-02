@@ -1062,9 +1062,31 @@ export class DocumentManager {
         let processed = 0;
 
         try {
-            // Get all supported files from uploads directory
-            const pattern = this.uploadsDir.replace(/\\/g, '/') + "/*{.txt,.md,.pdf}";
-            const files = await glob(pattern);
+            // Custom recursive function to find files following symlinks
+            const { readdir, stat } = await import('fs/promises');
+            const files: string[] = [];
+            
+            async function findFilesRecursive(dir: string) {
+                const entries = await readdir(dir, { withFileTypes: true });
+                for (const entry of entries) {
+                    const fullPath = path.join(dir, entry.name);
+                    if (entry.isSymbolicLink()) {
+                        // Follow symlink and recurse
+                        const stats = await stat(fullPath);
+                        if (stats.isDirectory()) {
+                            await findFilesRecursive(fullPath);
+                        } else if (stats.isFile()) {
+                            files.push(fullPath);
+                        }
+                    } else if (entry.isDirectory()) {
+                        await findFilesRecursive(fullPath);
+                    } else if (entry.isFile()) {
+                        files.push(fullPath);
+                    }
+                }
+            }
+            
+            await findFilesRecursive(this.uploadsDir);
 
             for (const filePath of files) {
                 try {
