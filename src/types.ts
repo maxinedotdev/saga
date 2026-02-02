@@ -337,7 +337,7 @@ export interface Reranker {
 /**
  * Provider type for reranking implementations
  */
-export type RerankerProviderType = 'cohere' | 'jina' | 'openai' | 'custom' | 'lmstudio';
+export type RerankerProviderType = 'cohere' | 'jina' | 'openai' | 'custom' | 'lmstudio' | 'mlx';
 
 /**
  * Configuration for a reranking provider

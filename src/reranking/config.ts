@@ -16,13 +16,16 @@ const DEFAULT_CONFIG = {
     maxCandidates: 50,
     topK: 10,
     timeout: 30000,
+    // MLX-specific configuration
+    mlxModelPath: '',  // Path to MLX model directory
+    mlxPythonPath: 'python3',  // Path to Python executable
 };
 
 /**
  * Load reranking configuration from environment variables
  * @returns Reranking configuration
  */
-function loadConfig(): RerankerConfig & { enabled: boolean } {
+function loadConfig(): RerankerConfig & { enabled: boolean; mlxModelPath: string; mlxPythonPath: string } {
     return {
         // Feature flag - opt-out by default (enabled unless explicitly set to 'false')
         enabled: process.env.MCP_RERANKING_ENABLED !== 'false',
@@ -37,6 +40,10 @@ function loadConfig(): RerankerConfig & { enabled: boolean } {
         maxCandidates: parseInt(process.env.MCP_RERANKING_CANDIDATES || DEFAULT_CONFIG.maxCandidates.toString(), 10),
         topK: parseInt(process.env.MCP_RERANKING_TOP_K || DEFAULT_CONFIG.topK.toString(), 10),
         timeout: parseInt(process.env.MCP_RERANKING_TIMEOUT || DEFAULT_CONFIG.timeout.toString(), 10),
+
+        // MLX-specific configuration
+        mlxModelPath: process.env.MCP_RERANKING_MLX_MODEL_PATH || DEFAULT_CONFIG.mlxModelPath,
+        mlxPythonPath: process.env.MCP_RERANKING_MLX_PYTHON_PATH || DEFAULT_CONFIG.mlxPythonPath,
     };
 }
 
@@ -44,7 +51,7 @@ function loadConfig(): RerankerConfig & { enabled: boolean } {
  * Reranking configuration loaded from environment variables
  * Reloaded on each access for testing support
  */
-export const RERANKING_CONFIG: RerankerConfig & { enabled: boolean } = loadConfig();
+export const RERANKING_CONFIG: RerankerConfig & { enabled: boolean; mlxModelPath: string; mlxPythonPath: string } = loadConfig();
 
 /**
  * Validate reranking configuration
@@ -60,7 +67,7 @@ export function validateRerankingConfig(): void {
     }
 
     // Validate provider
-    const validProviders: RerankerProviderType[] = ['cohere', 'jina', 'openai', 'custom', 'lmstudio'];
+    const validProviders: RerankerProviderType[] = ['cohere', 'jina', 'openai', 'custom', 'lmstudio', 'mlx'];
     if (!validProviders.includes(config.provider)) {
         throw new Error(
             `Invalid reranking provider: ${config.provider}. ` +
@@ -68,12 +75,22 @@ export function validateRerankingConfig(): void {
         );
     }
 
-    // Validate API key for API-based providers (except custom and lmstudio which may not need it)
+    // Validate API key for API-based providers (except custom, lmstudio, and mlx which may not need it)
     if (config.provider !== 'custom' && config.provider !== 'lmstudio' && !config.apiKey) {
         throw new Error(
             `API key is required for ${config.provider} provider. ` +
             `Set MCP_RERANKING_API_KEY environment variable.`
         );
+    }
+
+    // Validate MLX-specific configuration
+    if (config.provider === 'mlx') {
+        if (!config.mlxModelPath) {
+            throw new Error(
+                'MLX model path is required for MLX provider. ' +
+                'Set MCP_RERANKING_MLX_MODEL_PATH environment variable.'
+            );
+        }
     }
 
     // Validate numeric values
@@ -95,15 +112,17 @@ export function validateRerankingConfig(): void {
         throw new Error('MCP_RERANKING_TIMEOUT must be at least 1000ms (1 second)');
     }
 
-    // Validate base URL
-    if (!config.baseUrl) {
-        throw new Error('MCP_RERANKING_BASE_URL must be set');
-    }
+    // Validate base URL (only for API-based providers)
+    if (config.provider !== 'mlx') {
+        if (!config.baseUrl) {
+            throw new Error('MCP_RERANKING_BASE_URL must be set');
+        }
 
-    try {
-        new URL(config.baseUrl);
-    } catch (error) {
-        throw new Error(`Invalid MCP_RERANKING_BASE_URL: ${config.baseUrl}`);
+        try {
+            new URL(config.baseUrl);
+        } catch (error) {
+            throw new Error(`Invalid MCP_RERANKING_BASE_URL: ${config.baseUrl}`);
+        }
     }
 }
 
@@ -138,5 +157,11 @@ export function getRerankingConfig(): RerankerConfig {
 export function isRerankingEnabled(): boolean {
     // Reload config to support testing
     const config = loadConfig();
+    
+    // For MLX provider, check model path instead of API key
+    if (config.provider === 'mlx') {
+        return config.enabled && !!config.mlxModelPath;
+    }
+    
     return config.enabled && !!config.apiKey;
 }
