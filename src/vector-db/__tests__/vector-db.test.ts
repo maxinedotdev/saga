@@ -1,16 +1,17 @@
 /**
  * Unit tests for Vector Database components
- * Tests for LanceDBAdapter
+ * Tests for LanceDBV1
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { LanceDBAdapter, createVectorDatabase } from '../lance-db.js';
+import { LanceDBV1, createVectorDatabase } from '../index.js';
 import { DocumentChunk, CodeBlock } from '../../types.js';
 import {
     createTestChunk,
     createTestCodeBlock,
     createTestEmbedding,
     isLanceDbAvailable,
+    withEnv,
     withVectorDb,
     withTempDir
 } from '../../__tests__/test-utils.js';
@@ -39,14 +40,16 @@ describe('Vector Database Unit Tests', () => {
         lanceDbAvailable = await isLanceDbAvailable();
     });
 
-    describe('LanceDBAdapter', () => {
+    const testEmbeddingDim = 384;
+
+    describe('LanceDBV1', () => {
         it('should initialize and add chunks', async () => {
             if (!lanceDbAvailable) {
                 return;
             }
 
             await withTempDir('lance-test-', async (tempDir) => {
-                const lanceDB = new LanceDBAdapter(tempDir);
+                const lanceDB = new LanceDBV1(tempDir, { embeddingDim: testEmbeddingDim });
                 
                 // Test initialization
                 await lanceDB.initialize();
@@ -68,7 +71,7 @@ describe('Vector Database Unit Tests', () => {
             }
 
             await withTempDir('lance-test-', async (tempDir) => {
-                const lanceDB = new LanceDBAdapter(tempDir);
+                const lanceDB = new LanceDBV1(tempDir, { embeddingDim: testEmbeddingDim });
                 await lanceDB.initialize();
                 
                 await lanceDB.addChunks([testChunks[0]]);
@@ -86,7 +89,7 @@ describe('Vector Database Unit Tests', () => {
             }
 
             await withTempDir('lance-test-', async (tempDir) => {
-                const lanceDB = new LanceDBAdapter(tempDir);
+                const lanceDB = new LanceDBV1(tempDir, { embeddingDim: testEmbeddingDim });
                 await lanceDB.initialize();
                 
                 await lanceDB.addChunks(testChunks);
@@ -104,7 +107,7 @@ describe('Vector Database Unit Tests', () => {
             }
 
             await withTempDir('lance-test-', async (tempDir) => {
-                const lanceDB = new LanceDBAdapter(tempDir);
+                const lanceDB = new LanceDBV1(tempDir, { embeddingDim: testEmbeddingDim });
                 await lanceDB.initialize();
                 
                 await lanceDB.addChunks(testChunks);
@@ -121,7 +124,7 @@ describe('Vector Database Unit Tests', () => {
             }
 
             await withTempDir('lance-test-', async (tempDir) => {
-                const lanceDB = new LanceDBAdapter(tempDir);
+                const lanceDB = new LanceDBV1(tempDir, { embeddingDim: testEmbeddingDim });
                 await lanceDB.initialize();
                 
                 await lanceDB.addChunks([testChunks[2]]);
@@ -135,26 +138,30 @@ describe('Vector Database Unit Tests', () => {
     });
 
     describe('Factory Function', () => {
-        it('should create LanceDBAdapter', async () => {
+        it('should create LanceDBV1', async () => {
             if (!lanceDbAvailable) {
                 return;
             }
 
-            await withTempDir('factory-test-', async (tempDir) => {
-                const lanceDB = createVectorDatabase(tempDir);
-                expect(lanceDB).toBeInstanceOf(LanceDBAdapter);
-                await lanceDB.close();
+            await withEnv({ MCP_EMBEDDING_DIM: String(testEmbeddingDim) }, async () => {
+                await withTempDir('factory-test-', async (tempDir) => {
+                    const lanceDB = createVectorDatabase(tempDir);
+                    expect(lanceDB).toBeInstanceOf(LanceDBV1);
+                    await lanceDB.close();
+                });
             });
         });
 
-        it('should create LanceDBAdapter with default path', async () => {
+        it('should create LanceDBV1 with default path', async () => {
             if (!lanceDbAvailable) {
                 return;
             }
 
-            const defaultDB = createVectorDatabase();
-            expect(defaultDB).toBeInstanceOf(LanceDBAdapter);
-            await defaultDB.close();
+            await withEnv({ MCP_EMBEDDING_DIM: String(testEmbeddingDim) }, async () => {
+                const defaultDB = createVectorDatabase();
+                expect(defaultDB).toBeInstanceOf(LanceDBV1);
+                await defaultDB.close();
+            });
         });
 
         it('should work correctly with factory-created instance', async () => {
@@ -162,13 +169,15 @@ describe('Vector Database Unit Tests', () => {
                 return;
             }
 
-            await withTempDir('factory-test-', async (tempDir) => {
-                const lanceDB = createVectorDatabase(tempDir);
-                await lanceDB.initialize();
-                await lanceDB.addChunks([testChunks[0]]);
-                const chunk = await lanceDB.getChunk('chunk1');
-                expect(chunk).not.toBeNull();
-                await lanceDB.close();
+            await withEnv({ MCP_EMBEDDING_DIM: String(testEmbeddingDim) }, async () => {
+                await withTempDir('factory-test-', async (tempDir) => {
+                    const lanceDB = createVectorDatabase(tempDir);
+                    await lanceDB.initialize();
+                    await lanceDB.addChunks([testChunks[0]]);
+                    const chunk = await lanceDB.getChunk('chunk1');
+                    expect(chunk).not.toBeNull();
+                    await lanceDB.close();
+                });
             });
         });
     });
@@ -180,7 +189,7 @@ describe('Vector Database Unit Tests', () => {
             }
 
             await withTempDir('error-test-', async (tempDir) => {
-                const lanceDB = new LanceDBAdapter(tempDir);
+                const lanceDB = new LanceDBV1(tempDir, { embeddingDim: testEmbeddingDim });
                 
                 await expect(lanceDB.addChunks([testChunks[0]])).rejects.toThrow('not initialized');
             });
@@ -192,7 +201,7 @@ describe('Vector Database Unit Tests', () => {
             }
 
             await withTempDir('error-test-', async (tempDir) => {
-                const lanceDB = new LanceDBAdapter(tempDir);
+                const lanceDB = new LanceDBV1(tempDir, { embeddingDim: testEmbeddingDim });
                 await lanceDB.initialize();
                 
                 const chunk = await lanceDB.getChunk('non-existent');
@@ -208,7 +217,7 @@ describe('Vector Database Unit Tests', () => {
             }
 
             await withTempDir('error-test-', async (tempDir) => {
-                const lanceDB = new LanceDBAdapter(tempDir);
+                const lanceDB = new LanceDBV1(tempDir, { embeddingDim: testEmbeddingDim });
                 await lanceDB.initialize();
                 
                 const emptyResults = await lanceDB.search(createTestEmbedding(1), 5);
@@ -224,7 +233,7 @@ describe('Vector Database Unit Tests', () => {
             }
 
             await withTempDir('error-test-', async (tempDir) => {
-                const lanceDB = new LanceDBAdapter(tempDir);
+                const lanceDB = new LanceDBV1(tempDir, { embeddingDim: testEmbeddingDim });
                 await lanceDB.initialize();
                 
                 const chunkWithoutEmbedding = createTestChunk('no-embed', 'doc1', 'No embedding here');

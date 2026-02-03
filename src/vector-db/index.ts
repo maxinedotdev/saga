@@ -5,8 +5,17 @@
  */
 
 // LanceDB implementations
-export { LanceDBAdapter, createVectorDatabase } from './lance-db.js';
-export { LanceDBV1 } from './lance-db-v1.js';
+import * as path from 'path';
+import { getDefaultDataDir, expandHomeDir } from '../utils.js';
+import { LanceDBV1 } from './lance-db-v1.js';
+
+export { LanceDBV1 };
+
+export function createVectorDatabase(dbPath?: string): LanceDBV1 {
+    const envPath = process.env.MCP_LANCE_DB_PATH;
+    const resolvedPath = dbPath ?? (envPath ? expandHomeDir(envPath) : path.join(getDefaultDataDir(), 'lancedb'));
+    return new LanceDBV1(resolvedPath);
+}
 
 // HNSW Indexing
 export {
@@ -98,9 +107,3 @@ export {
     getValidatorConfigFromEnv,
     createIntegrityValidator,
 } from './integrity-validator.js';
-
-// Migration utilities
-export { migrateToV1, MigrationOptions } from './migrate-v1.js';
-
-// Legacy migration
-export { migrateFromJson, MigrationResult } from './migrate.js';

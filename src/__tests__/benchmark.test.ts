@@ -4,7 +4,6 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { LanceDBAdapter } from '../vector-db/index.js';
 import { DocumentChunk } from '../types.js';
 import { createTestChunk, createTestEmbedding, withVectorDb } from './test-utils.js';
 

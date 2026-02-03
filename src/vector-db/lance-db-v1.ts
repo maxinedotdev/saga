@@ -1459,6 +1459,44 @@ export class LanceDBV1 implements ValidationDatabase {
         return this.queryByDocumentId(documentId);
     }
 
+    async getChunk(chunkId: string): Promise<DocumentChunk | null> {
+        if (!this.initialized || !this.chunksTable) {
+            throw new Error('Database not initialized');
+        }
+
+        const results = await this.chunksTable
+            .query()
+            .where(`id = '${chunkId}'`)
+            .limit(1)
+            .toArray();
+
+        const row = results[0];
+        if (!row) {
+            return null;
+        }
+
+        return {
+            id: row.id,
+            document_id: row.document_id,
+            chunk_index: row.chunk_index,
+            content: row.content,
+            embeddings: row.embedding,
+            start_position: row.start_position,
+            end_position: row.end_position,
+            metadata: {
+                surrounding_context: row.surrounding_context ?? undefined,
+                semantic_topic: row.semantic_topic ?? undefined,
+            },
+        };
+    }
+
+    async removeChunks(documentId: string): Promise<void> {
+        if (!this.initialized || !this.chunksTable) {
+            throw new Error('Database not initialized');
+        }
+        await this.chunksTable.delete(`document_id = '${documentId}'`);
+    }
+
     async getCodeBlocksByDocument(documentId: string): Promise<CodeBlockV1[]> {
         if (!this.initialized || !this.codeBlocksTable) {
             throw new Error('Database not initialized');

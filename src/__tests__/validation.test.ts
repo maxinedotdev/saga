@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import { DocumentManager } from '../document-manager.js';
-import { createVectorDatabase, LanceDBAdapter } from '../vector-db/index.js';
+import { LanceDBV1 } from '../vector-db/index.js';
 import { createTempDir, withBaseDir, withBaseDirAndDocumentManager, withEnv, createTestEmbeddingProvider } from './test-utils.js';
 import {
     RequestTimeoutError,
@@ -104,7 +104,9 @@ describe('Validation Tests', () => {
                     const openaiEmbedding = await openaiProvider.generateEmbedding('test text');
                     expect(openaiEmbedding.length).toBeGreaterThan(0);
 
-                    const openaiVectorDB = new LanceDBAdapter(createTempDir('vector-test-'));
+                    const openaiVectorDB = new LanceDBV1(createTempDir('vector-test-'), {
+                        embeddingDim: openaiEmbedding.length,
+                    });
                     await openaiVectorDB.initialize();
                     const openaiDocManager = new DocumentManager(openaiProvider, openaiVectorDB);
 

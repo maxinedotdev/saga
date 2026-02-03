@@ -4,10 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import * as fs from 'fs';
-import * as path from 'path';
-import { createVectorDatabase } from '../vector-db/index.js';
-import { withBaseDirAndDocumentManager, withTempDir } from './test-utils.js';
+import { withBaseDirAndDocumentManager } from './test-utils.js';
 
 describe('Integration Tests', () => {
     describe('DocumentManager Integration', () => {
@@ -85,98 +82,6 @@ describe('Integration Tests', () => {
                 for (const id of crawlDocs) {
                     const doc = await documentManager.getDocument(id);
                     expect(doc).toBeNull();
-                }
-            });
-        });
-    });
-
-    describe('Migration Tests', () => {
-        it('should migrate documents from JSON to vector DB', { timeout: 60000 }, async () => {
-            await withTempDir('migrate-test-', async (tempDir) => {
-                const dataDir = path.join(tempDir, 'data');
-                const lanceDir = path.join(tempDir, 'lancedb');
-
-                fs.mkdirSync(dataDir, { recursive: true });
-
-                const createTestDocument = (id: string, title: string, content: string) => {
-                    const doc = {
-                        id,
-                        title,
-                        content,
-                        metadata: { source: 'test' },
-                        chunks: [
-                            {
-                                id: `${id}-chunk-0`,
-                                document_id: id,
-                                chunk_index: 0,
-                                content,
-                                embeddings: Array(384).fill(0).map((_, i) => Math.sin(id.charCodeAt(0) * i)),
-                                start_position: 0,
-                                end_position: content.length,
-                                metadata: {}
-                            }
-                        ],
-                        created_at: new Date().toISOString(),
-                        updated_at: new Date().toISOString()
-                    };
-                    fs.writeFileSync(path.join(dataDir, `${id}.json`), JSON.stringify(doc, null, 2));
-                };
-
-                for (let i = 0; i < 10; i++) {
-                    createTestDocument(
-                        `doc-${i}`,
-                        `Test Document ${i}`,
-                        `This is test document ${i} with sample content for migration testing.`
-                    );
-                }
-
-                const { migrateFromJson } = await import('../vector-db/index.js');
-                const vectorDB = createVectorDatabase(lanceDir);
-
-                try {
-                    await vectorDB.initialize();
-
-                    const migrationResult = await migrateFromJson(vectorDB, tempDir);
-                    expect(migrationResult.success).toBe(true);
-                    expect(migrationResult.documentsMigrated).toBe(10);
-                    expect(migrationResult.chunksMigrated).toBe(10);
-                    expect(migrationResult.errors.length).toBe(0);
-
-                    const chunk = await vectorDB.getChunk('doc-0-chunk-0');
-                    expect(chunk).not.toBeNull();
-                    expect(chunk?.id).toBe('doc-0-chunk-0');
-
-                    for (let i = 10; i < 50; i++) {
-                        createTestDocument(
-                            `doc-${i}`,
-                            `Test Document ${i}`,
-                            `This is test document ${i} with sample content for migration testing.`
-                        );
-                    }
-
-                    const migrationResult2 = await migrateFromJson(vectorDB, tempDir);
-                    expect(migrationResult2.success).toBe(true);
-                    expect(migrationResult2.documentsMigrated).toBe(40);
-
-                    for (let i = 50; i < 100; i++) {
-                        createTestDocument(
-                            `doc-${i}`,
-                            `Test Document ${i}`,
-                            `This is test document ${i} with sample content for migration testing.`
-                        );
-                    }
-
-                    const migrationResult3 = await migrateFromJson(vectorDB, tempDir);
-                    expect(migrationResult3.success).toBe(true);
-                    expect(migrationResult3.documentsMigrated).toBe(50);
-
-                    await vectorDB.close();
-                } catch (error) {
-                    if (error instanceof Error && error.message.includes('LanceDB is not available')) {
-                        // LanceDB not available, skip test
-                        return;
-                    }
-                    throw error;
                 }
             });
         });

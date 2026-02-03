@@ -4,7 +4,7 @@ import * as path from 'path';
 import { CodeBlock, Document, DocumentChunk, EmbeddingProvider } from '../types.js';
 import { createLazyEmbeddingProvider, clearEmbeddingProviderCache } from '../embedding-provider.js';
 import { DocumentManager } from '../document-manager.js';
-import { LanceDBAdapter } from '../vector-db/index.js';
+import { LanceDBV1 } from '../vector-db/index.js';
 import { MockEmbeddingProvider } from './mock-embedding-provider.js';
 
 type EnvMap = Record<string, string | undefined>;
@@ -149,23 +149,26 @@ export async function warmupEmbeddingProvider(): Promise<void> {
 }
 
 export const withVectorDb = async <T>(
-    fn: (vectorDb: LanceDBAdapter) => Promise<T> | T,
+    fn: (vectorDb: LanceDBV1) => Promise<T> | T,
     prefix: string = 'vector-test-'
 ): Promise<T> => {
-    const dir = createTempDir(prefix);
-    const vectorDb = new LanceDBAdapter(dir);
-    await vectorDb.initialize();
+    const embeddingDim = process.env.MCP_EMBEDDING_DIM ?? '384';
+    return withEnv({ MCP_EMBEDDING_DIM: embeddingDim }, async () => {
+        const dir = createTempDir(prefix);
+        const vectorDb = new LanceDBV1(dir);
+        await vectorDb.initialize();
 
-    try {
-        return await fn(vectorDb);
-    } finally {
-        await vectorDb.close();
-        removeTempDir(dir);
-    }
+        try {
+            return await fn(vectorDb);
+        } finally {
+            await vectorDb.close();
+            removeTempDir(dir);
+        }
+    });
 };
 
 type DocumentManagerHarness = {
-    vectorDb: LanceDBAdapter;
+    vectorDb: LanceDBV1;
     documentManager: DocumentManager;
     embeddingProvider: EmbeddingProvider;
 };
