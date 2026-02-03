@@ -19,6 +19,8 @@ export interface DocumentV1 {
     id: string;
     /** Document title */
     title: string;
+    /** Full document content */
+    content: string;
     /** SHA-256 hash for deduplication (16 chars) */
     content_hash: string;
     /** Character count */
@@ -197,16 +199,27 @@ export interface SchemaVersionV1 {
 /**
  * Vector index configuration
  */
-export interface VectorIndexConfig {
-    /** Index type */
-    type: 'ivf_pq';
-    /** Distance metric */
-    metricType: 'cosine' | 'l2' | 'dot';
-    /** Number of IVF partitions */
-    num_partitions: number;
-    /** Number of sub-vectors for PQ */
-    num_sub_vectors: number;
-}
+export type VectorIndexConfig =
+    | {
+          /** Index type */
+          type: 'hnsw_sq';
+          /** Distance metric */
+          metricType: 'cosine' | 'l2' | 'dot';
+          /** Max connections per node */
+          M: number;
+          /** Build-time search depth */
+          efConstruction: number;
+      }
+    | {
+          /** Index type */
+          type: 'ivf_pq';
+          /** Distance metric */
+          metricType: 'cosine' | 'l2' | 'dot';
+          /** Number of IVF partitions */
+          num_partitions: number;
+          /** Number of sub-vectors for PQ */
+          num_sub_vectors: number;
+      };
 
 /**
  * Scalar index configuration

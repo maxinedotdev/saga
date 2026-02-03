@@ -22,6 +22,7 @@ import type {
     ChunkV1,
     CodeBlockV1,
     KeywordV1,
+    SchemaVersionV1,
     QueryOptionsV1,
     QueryResultV1,
     QueryResponseV1,
@@ -67,8 +68,11 @@ import {
     type ValidationReport,
     type ValidationDatabase,
 } from './integrity-validator.js';
+import type { CodeBlock, CodeBlockSearchResult } from '../types.js';
+import { normalizeLanguageTag } from '../code-block-utils.js';
 
 const logger = getLogger('LanceDBV1');
+const SCHEMA_VERSION = '1.0.0';
 
 // ============================================================================
 // Helper Functions
@@ -91,7 +95,7 @@ function getCurrentTimestamp(): string {
 /**
  * Generate a sample embedding vector for schema inference
  * Creates a vector with float32 values (all zeros)
- * Uses the configured embedding dimension (default: 4096)
+ * Uses the configured embedding dimension (default: 2048)
  * This allows LanceDB to properly infer the embedding field type
  */
 function generateSampleEmbedding(dim: number = getEmbeddingDimension()): number[] {
@@ -104,21 +108,6 @@ function generateSampleEmbedding(dim: number = getEmbeddingDimension()): number[
 function calculateContentHash(content: string): string {
     const hash = crypto.createHash('sha256').update(content).digest('hex');
     return hash.substring(0, 16);
-}
-
-/**
- * Calculate dynamic IVF_PQ parameters based on vector count and dimension
- */
-function calculateIVF_PQ_Params(vectorCount: number, embeddingDim: number) {
-    const numPartitions = Math.max(16, Math.floor(Math.sqrt(vectorCount)));
-    const numSubVectors = Math.max(4, Math.floor(embeddingDim / 16));
-    
-    return {
-        type: 'ivf_pq',
-        metricType: 'cosine',
-        num_partitions: Math.min(numPartitions, 2048),
-        num_sub_vectors: Math.min(numSubVectors, 256)
-    };
 }
 
 /**
@@ -261,6 +250,7 @@ export class LanceDBV1 implements ValidationDatabase {
 
             // Open or create tables
             await this.openOrCreateTables();
+            await this.ensureSchemaVersion();
 
             // Check if indexes need to be created
             await this.ensureIndexes();
@@ -313,6 +303,7 @@ export class LanceDBV1 implements ValidationDatabase {
                             sampleData = [{
                                 id: generateUUID(),
                                 title: '',
+                                content: '',
                                 content_hash: '',
                                 content_length: 0,
                                 source: 'upload',
@@ -389,10 +380,10 @@ export class LanceDBV1 implements ValidationDatabase {
                             break;
                         case 'schema_version':
                             sampleData = [{
-                                id: 0,
-                                version: '',
+                                id: 1,
+                                version: SCHEMA_VERSION,
                                 applied_at: getCurrentTimestamp(),
-                                description: ''
+                                description: 'Initial v1 schema'
                             }];
                             break;
                     }
@@ -434,6 +425,51 @@ export class LanceDBV1 implements ValidationDatabase {
                 break;
         }
     }
+
+    /**
+     * Ensure schema version matches expected version.
+     * This implementation is migrationless: mismatches require manual deletion.
+     */
+    private async ensureSchemaVersion(): Promise<void> {
+        if (!this.schemaVersionTable) {
+            return;
+        }
+
+        const rows = await this.schemaVersionTable.query().toArray() as SchemaVersionV1[];
+        const versions = rows
+            .map((row) => ({
+                version: row.version?.trim() ?? '',
+                applied_at: row.applied_at ?? '',
+                id: row.id ?? 0,
+            }))
+            .filter((row) => row.version.length > 0);
+
+        if (versions.length === 0) {
+            await this.schemaVersionTable.add([{
+                id: 1,
+                version: SCHEMA_VERSION,
+                applied_at: getCurrentTimestamp(),
+                description: 'Initial v1 schema',
+            }]);
+            logger.info(`Schema version recorded as ${SCHEMA_VERSION}`);
+            return;
+        }
+
+        const latest = versions.reduce((current, candidate) => {
+            if (candidate.applied_at && current.applied_at) {
+                return candidate.applied_at > current.applied_at ? candidate : current;
+            }
+            return candidate.id > current.id ? candidate : current;
+        });
+
+        if (latest.version !== SCHEMA_VERSION) {
+            const message =
+                `LanceDB schema version ${latest.version} is incompatible with required ${SCHEMA_VERSION}. ` +
+                `Delete the database directory at ${this.dbPath} and restart to recreate the schema.`;
+            logger.error(message);
+            throw new Error(message);
+        }
+    }
     
     /**
      * Ensure indexes exist on all tables
@@ -450,33 +486,43 @@ export class LanceDBV1 implements ValidationDatabase {
      * Create scalar indexes if they don't exist
      */
     private async createScalarIndexesIfNotExists(): Promise<void> {
-        const scalarIndexes = [
-            { table: 'documents', columns: ['id', 'content_hash', 'source', 'crawl_id', 'status', 'created_at'] },
-            { table: 'chunks', columns: ['document_id', 'chunk_index', 'created_at'] },
-            { table: 'code_blocks', columns: ['document_id', 'block_index', 'language', 'created_at'] },
-            { table: 'document_tags', columns: ['document_id', 'tag'] },
-            { table: 'document_languages', columns: ['document_id', 'language_code'] },
-            { table: 'keywords', columns: ['keyword', 'document_id'] }
+        const bitmapIndexes = [
+            { table: 'documents', columns: ['source', 'status'] },
+            { table: 'document_languages', columns: ['language_code'] },
+            { table: 'code_blocks', columns: ['language'] },
         ];
-        
-        for (const { table, columns } of scalarIndexes) {
-            const tableRef = this.getTableReference(table);
-            if (!tableRef) continue;
-            
-            for (const column of columns) {
-                try {
-                    await tableRef.createIndex(column, { config: Index.btree() });
-                    logger.debug(`Created scalar index on ${table}.${column}`);
-                } catch (error) {
-                    // Index might already exist
-                    if ((error as Error).message.includes('already exists')) {
-                        logger.debug(`Scalar index already exists on ${table}.${column}`);
-                    } else {
-                        logger.warn(`Failed to create scalar index on ${table}.${column}:`, error);
+
+        const btreeIndexes = [
+            { table: 'documents', columns: ['id', 'content_hash', 'crawl_id'] },
+            { table: 'chunks', columns: ['document_id'] },
+            { table: 'code_blocks', columns: ['document_id', 'block_id'] },
+            { table: 'document_tags', columns: ['document_id', 'tag'] },
+            { table: 'document_languages', columns: ['document_id'] },
+            { table: 'keywords', columns: ['keyword', 'document_id'] },
+        ];
+
+        const createIndexes = async (indexes: Array<{ table: string; columns: string[] }>, configFactory: () => Index) => {
+            for (const { table, columns } of indexes) {
+                const tableRef = this.getTableReference(table);
+                if (!tableRef) continue;
+
+                for (const column of columns) {
+                    try {
+                        await tableRef.createIndex(column, { config: configFactory() });
+                        logger.debug(`Created scalar index on ${table}.${column}`);
+                    } catch (error) {
+                        if ((error as Error).message.includes('already exists')) {
+                            logger.debug(`Scalar index already exists on ${table}.${column}`);
+                        } else {
+                            logger.warn(`Failed to create scalar index on ${table}.${column}:`, error);
+                        }
                     }
                 }
             }
-        }
+        };
+
+        await createIndexes(bitmapIndexes, () => Index.bitmap());
+        await createIndexes(btreeIndexes, () => Index.btree());
     }
     
     /**
@@ -503,14 +549,15 @@ export class LanceDBV1 implements ValidationDatabase {
 
                     try {
                         if (config.type === 'hnsw') {
-                            // Create HNSW index (works with any number of vectors)
+                            // Create HNSW-SQ index (works with any number of vectors)
                             await tableRef.createIndex('embedding', {
-                                type: 'hnsw',
-                                metricType: config.metricType,
-                                m: config.M,
-                                efConstruction: config.efConstruction,
+                                config: Index.hnswSq({
+                                    distanceType: config.metricType,
+                                    m: config.M,
+                                    efConstruction: config.efConstruction,
+                                })
                             });
-                            logger.info(`Created HNSW index on ${tableName}: M=${config.M}, efConstruction=${config.efConstruction}`);
+                            logger.info(`Created HNSW-SQ index on ${tableName}: M=${config.M}, efConstruction=${config.efConstruction}`);
                         } else {
                             // Check if we have enough vectors for IVF_PQ
                             if (count < MIN_VECTORS_FOR_IVF_PQ) {
@@ -524,10 +571,11 @@ export class LanceDBV1 implements ValidationDatabase {
 
                             // Create IVF_PQ index
                             await tableRef.createIndex('embedding', {
-                                type: config.type,
-                                metricType: config.metricType,
-                                num_partitions: config.num_partitions,
-                                num_sub_vectors: config.num_sub_vectors
+                                config: Index.ivfPq({
+                                    distanceType: config.metricType,
+                                    numPartitions: config.num_partitions,
+                                    numSubVectors: config.num_sub_vectors,
+                                })
                             });
                             logger.info(`Created IVF_PQ index on ${tableName}: partitions=${config.num_partitions}, sub_vectors=${config.num_sub_vectors}`);
                         }
@@ -599,6 +647,88 @@ export class LanceDBV1 implements ValidationDatabase {
             return documentId;
         }, 'addDocument');
     }
+
+    /**
+     * Add document tags in batch
+     */
+    async addDocumentTags(documentId: string, tags: Array<{ tag: string; is_generated: boolean }>): Promise<void> {
+        if (!this.initialized) {
+            throw new Error('Database not initialized');
+        }
+        if (!this.documentTagsTable || tags.length === 0) {
+            return;
+        }
+
+        const now = getCurrentTimestamp();
+        const rows: DocumentTagV1[] = tags.map((tag) => ({
+            id: generateUUID(),
+            document_id: documentId,
+            tag: tag.tag.toLowerCase(),
+            is_generated: tag.is_generated,
+            created_at: now,
+        }));
+
+        await withRetry(async () => {
+            await this.documentTagsTable!.add(rows);
+        }, 'addDocumentTags');
+    }
+
+    /**
+     * Add document languages in batch
+     */
+    async addDocumentLanguages(documentId: string, languages: string[]): Promise<void> {
+        if (!this.initialized) {
+            throw new Error('Database not initialized');
+        }
+        if (!this.documentLanguagesTable || languages.length === 0) {
+            return;
+        }
+
+        const now = getCurrentTimestamp();
+        const rows: DocumentLanguageV1[] = languages.map((language) => ({
+            id: generateUUID(),
+            document_id: documentId,
+            language_code: language.toLowerCase(),
+            created_at: now,
+        }));
+
+        await withRetry(async () => {
+            await this.documentLanguagesTable!.add(rows);
+        }, 'addDocumentLanguages');
+    }
+
+    /**
+     * Update document chunk/code block counts
+     */
+    async updateDocumentCounts(documentId: string, chunksCount: number, codeBlocksCount: number): Promise<void> {
+        if (!this.initialized || !this.documentsTable) {
+            throw new Error('Database not initialized');
+        }
+
+        await withRetry(async () => {
+            await this.documentsTable!.update(`id = '${documentId}'`, [
+                ['chunks_count', `${chunksCount}`],
+                ['code_blocks_count', `${codeBlocksCount}`],
+                ['updated_at', `'${getCurrentTimestamp()}'`],
+            ]);
+        }, 'updateDocumentCounts');
+    }
+
+    /**
+     * Fetch documents by ids
+     */
+    async getDocumentsByIds(documentIds: string[]): Promise<DocumentV1[]> {
+        if (!this.initialized || !this.documentsTable) {
+            throw new Error('Database not initialized');
+        }
+        if (documentIds.length === 0) {
+            return [];
+        }
+
+        const ids = documentIds.map((id) => `'${id}'`).join(', ');
+        const results = await this.documentsTable.query().where(`id IN (${ids})`).toArray();
+        return results as DocumentV1[];
+    }
     
     /**
      * Add chunks in batches
@@ -654,6 +784,57 @@ export class LanceDBV1 implements ValidationDatabase {
                 logger.debug(`Added ${blocksWithIds.length} code blocks (batch ${Math.floor(i / batchSize) + 1})`);
             }
         }, 'addCodeBlocks');
+    }
+
+    /**
+     * Search code blocks using vector similarity
+     */
+    async searchCodeBlocks(
+        queryEmbedding: number[],
+        limit: number,
+        language?: string
+    ): Promise<CodeBlockSearchResult[]> {
+        if (!this.initialized) {
+            throw new Error('Database not initialized');
+        }
+
+        if (!this.codeBlocksTable) {
+            return [];
+        }
+
+        try {
+            const query = this.codeBlocksTable.search(queryEmbedding).limit(limit);
+
+            if (language && language.trim().length > 0) {
+                const normalizedLanguage = normalizeLanguageTag(language);
+                query.where(`language = '${normalizedLanguage}'`);
+            }
+
+            const results = await query.toArray();
+
+            return results
+                .map((row: any) => {
+                    const codeBlock: CodeBlock = {
+                        id: row.id,
+                        document_id: row.document_id,
+                        block_id: row.block_id,
+                        block_index: row.block_index,
+                        language: row.language,
+                        content: row.content,
+                        embedding: row.embedding,
+                        source_url: row.source_url,
+                    };
+
+                    return {
+                        code_block: codeBlock,
+                        score: row._distance ? (2 - row._distance) / 2 : 1,
+                    };
+                })
+                .sort((a: CodeBlockSearchResult, b: CodeBlockSearchResult) => b.score - a.score);
+        } catch (error) {
+            logger.error('Failed to search code blocks:', error);
+            throw new Error(`Failed to search code blocks: ${error}`);
+        }
     }
     
     /**
