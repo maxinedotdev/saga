@@ -5,7 +5,7 @@ import { createHash } from 'crypto';
 import type { Document, DocumentChunk, DocumentSummary, CodeBlock, EmbeddingProvider, QueryOptions, QueryResponse, DocumentDiscoveryResult, MetadataFilter, Reranker, RerankResult } from './types.js';
 import { LangChainChunker } from './chunking/langchain-chunker.js';
 import { extractText } from 'unpdf';
-import { getDefaultDataDir, expandHomeDir } from './utils.js';
+import { getDefaultDataDir, expandHomeDir, getLogger } from './utils.js';
 import { extractMarkdownCodeBlocks } from './markdown-code-blocks.js';
 import { normalizeLanguageTag } from './code-block-utils.js';
 import { LanceDBV1 } from './vector-db/lance-db-v1.js';
@@ -14,66 +14,7 @@ import { ApiReranker } from './reranking/api-reranker.js';
 import { getRerankingConfig, isRerankingEnabled } from './reranking/config.js';
 import type { ChunkV1, CodeBlockV1, DocumentTagV1, DocumentV1 } from './types/database-v1.js';
 
-// ============================================
-// DIAGNOSTIC LOGGING: Document Manager
-// ============================================
-
-const getTimestamp = () => new Date().toISOString();
-const getMemoryUsage = () => {
-    const usage = process.memoryUsage();
-    return `heap=${(usage.heapUsed / 1024 / 1024).toFixed(2)}MB, total=${(usage.heapTotal / 1024 / 1024).toFixed(2)}MB, rss=${(usage.rss / 1024 / 1024).toFixed(2)}MB`;
-};
-
-// Track active operations for debugging
-const activeOperations = new Map<string, { startTime: number; operation: string }>();
-
-const startOperation = (operationId: string, operation: string) => {
-    activeOperations.set(operationId, { startTime: Date.now(), operation });
-    console.error(`[DocumentManager] ${getTimestamp()} START ${operation} (id: ${operationId})`);
-    console.error(`[DocumentManager] ${getTimestamp()} Memory: ${getMemoryUsage()}`);
-};
-
-const endOperation = (operationId: string, status: 'success' | 'error', error?: Error) => {
-    const op = activeOperations.get(operationId);
-    if (op) {
-        const duration = Date.now() - op.startTime;
-        console.error(`[DocumentManager] ${getTimestamp()} END ${op.operation} (id: ${operationId}) - ${status} (${duration}ms)`);
-        console.error(`[DocumentManager] ${getTimestamp()} Memory: ${getMemoryUsage()}`);
-        if (error) {
-            console.error(`[DocumentManager] ${getTimestamp()} Error: ${error.message}`);
-            console.error(`[DocumentManager] ${getTimestamp()} Stack: ${error.stack}`);
-        }
-        activeOperations.delete(operationId);
-    }
-};
-
-// Periodic memory logging during document processing
-let memoryLogInterval: NodeJS.Timeout | null = null;
-
-const startMemoryLogging = () => {
-    if (!memoryLogInterval) {
-        memoryLogInterval = setInterval(() => {
-            console.error(`[DocumentManager] ${getTimestamp()} Periodic memory check - ${getMemoryUsage()}`);
-            console.error(`[DocumentManager] ${getTimestamp()} Active operations: ${activeOperations.size}`);
-            for (const [id, op] of activeOperations.entries()) {
-                const elapsed = Date.now() - op.startTime;
-                console.error(`[DocumentManager] ${getTimestamp()}   - ${op.operation} (${id}): ${elapsed}ms`);
-            }
-        }, 30000); // Every 30 seconds
-    }
-};
-
-const stopMemoryLogging = () => {
-    if (memoryLogInterval) {
-        clearInterval(memoryLogInterval);
-        memoryLogInterval = null;
-        console.error(`[DocumentManager] ${getTimestamp()} Stopped periodic memory logging`);
-    }
-};
-
-// ============================================
-// END DIAGNOSTIC LOGGING
-// ============================================
+const logger = getLogger('DocumentManager');
 
 /**
  * Document manager that handles document operations with chunking, indexing, and embeddings
@@ -95,31 +36,17 @@ export class DocumentManager {
     private rerankingEnabled: boolean = false;
 
     constructor(embeddingProvider: EmbeddingProvider, vectorDatabase?: LanceDBV1) {
-        console.error(`[DocumentManager] ${getTimestamp()} CONSTRUCTOR START`);
-        console.error(`[DocumentManager] ${getTimestamp()} Memory: ${getMemoryUsage()}`);
-
         // Always use default paths
         const baseDir = getDefaultDataDir();
         this.dataDir = path.join(baseDir, 'data');
         this.uploadsDir = path.join(baseDir, 'uploads');
-
-        console.error(`[DocumentManager] ${getTimestamp()} Data dir: ${this.dataDir}`);
-        console.error(`[DocumentManager] ${getTimestamp()} Uploads dir: ${this.uploadsDir}`);
 
         this.embeddingProvider = embeddingProvider;
         this.chunker = new LangChainChunker(this.embeddingProvider);
 
         // Feature flags with fallback
         this.useIndexing = process.env.MCP_INDEXING_ENABLED !== 'false';
-        const vectorDbEnv = process.env.MCP_VECTOR_DB;
-        const vectorDbEnabledEnv = process.env.MCP_VECTOR_DB_ENABLED;
-        if (vectorDbEnv !== undefined) {
-            this.useVectorDb = vectorDbEnv !== 'false';
-        } else if (vectorDbEnabledEnv !== undefined) {
-            this.useVectorDb = vectorDbEnabledEnv !== 'false';
-        } else {
-            this.useVectorDb = true;
-        }
+        this.useVectorDb = true;
         this.useParallelProcessing = process.env.MCP_PARALLEL_ENABLED !== 'false';
         this.useStreaming = process.env.MCP_STREAMING_ENABLED !== 'false';
         this.useTagGeneration = process.env.MCP_TAG_GENERATION_ENABLED === 'true';
@@ -127,97 +54,45 @@ export class DocumentManager {
         
         // Initialize reranker if enabled
         this.rerankingEnabled = isRerankingEnabled();
-        console.error(`[DocumentManager] Reranking enabled: ${this.rerankingEnabled}`);
-        
         if (this.rerankingEnabled) {
             try {
                 const config = getRerankingConfig();
-                
-                // Log full configuration state for debugging
-                console.error(`[DocumentManager] Reranker configuration:`);
-                console.error(`  - Provider: ${config.provider}`);
-                console.error(`  - Base URL: ${config.baseUrl}`);
-                console.error(`  - Model: ${config.model}`);
-                console.error(`  - Has API Key: ${!!config.apiKey}`);
-                console.error(`  - Timeout: ${config.timeout}ms`);
-                console.error(`  - Max Candidates: ${config.maxCandidates}`);
-                console.error(`  - Top K: ${config.topK}`);
-                
-                // Validate configuration before initialization
-                if (!config.baseUrl) {
-                    throw new Error('MCP_RERANKING_BASE_URL is not set');
-                }
-                if (!config.model) {
-                    throw new Error('MCP_RERANKING_MODEL is not set');
-                }
-                if (config.provider !== 'custom' && !config.apiKey) {
-                    throw new Error(`MCP_RERANKING_API_KEY is required for provider '${config.provider}'. Set it to your actual API key, or use provider='custom' for local endpoints like LM Studio.`);
-                }
-                
                 this.reranker = new ApiReranker(config);
-                console.error(`[DocumentManager] Reranker initialized successfully with model: ${config.model}`);
+                logger.info(`Reranker initialized (${config.provider}, ${config.model})`);
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : String(error);
                 const errorStack = error instanceof Error ? error.stack : undefined;
-                
-                console.error(`[DocumentManager] ============================================`);
-                console.error(`[DocumentManager] RERANKER INITIALIZATION FAILED`);
-                console.error(`[DocumentManager] ============================================`);
-                console.error(`[DocumentManager] Error: ${errorMessage}`);
+                logger.error(`Reranker initialization failed: ${errorMessage}`);
                 if (errorStack) {
-                    console.error(`[DocumentManager] Stack trace:`);
-                    console.error(errorStack);
+                    logger.error(errorStack);
                 }
-                console.error(`[DocumentManager] ============================================`);
-                console.error(`[DocumentManager] Troubleshooting steps:`);
-                console.error(`[DocumentManager] 1. Check that MCP_RERANKING_ENABLED=true`);
-                console.error(`[DocumentManager] 2. Verify MCP_RERANKING_PROVIDER matches your base URL`);
-                console.error(`[DocumentManager] 3. Ensure MCP_RERANKING_API_KEY is set (unless using LM Studio)`);
-                console.error(`[DocumentManager] 4. Confirm MCP_RERANKING_MODEL is supported by your provider`);
-                console.error(`[DocumentManager] 5. Test your API key and endpoint with curl`);
-                console.error(`[DocumentManager] 6. See .env.example for working configuration examples`);
-                console.error(`[DocumentManager] ============================================`);
-                
                 this.rerankingEnabled = false;
                 this.reranker = null;
             }
         } else {
-            console.error(`[DocumentManager] Reranking is disabled. Set MCP_RERANKING_ENABLED=true to enable.`);
+            logger.info('Reranking is disabled.');
         }
 
-        console.error(`[DocumentManager] ${getTimestamp()} About to call ensureDataDir()...`);
         this.ensureDataDir();
-        console.error(`[DocumentManager] ${getTimestamp()} ensureDataDir() completed`);
-
-        console.error(`[DocumentManager] ${getTimestamp()} About to call ensureUploadsDir()...`);
         this.ensureUploadsDir();
-        console.error(`[DocumentManager] ${getTimestamp()} ensureUploadsDir() completed`);
-
         if (!this.useIndexing) {
-            console.error(`[DocumentManager] ${getTimestamp()} Keyword indexing disabled by config`);
+            logger.info('Keyword indexing disabled by config.');
         }
 
         // Initialize vector database with error handling
         // Note: We initialize asynchronously in the background to avoid blocking the constructor
         if (this.useVectorDb) {
-            console.error(`[DocumentManager] ${getTimestamp()} About to create vector database...`);
             this.vectorDatabase = vectorDatabase || this.createVectorDatabase();
-            console.error(`[DocumentManager] ${getTimestamp()} Vector database created, starting async initialization...`);
             // Initialize asynchronously without blocking constructor, but store the promise
             this.vectorDbInitPromise = this.initializeVectorDatabase().catch(error => {
-                console.error('[DocumentManager] Vector database initialization failed:', error);
+                logger.error('Vector database initialization failed:', error);
                 this.useVectorDb = false;
                 this.vectorDatabase = null;
                 this.vectorDbInitPromise = null;
-                // Gracefully degrade - server continues without vector search capabilities
             });
-            console.error(`[DocumentManager] ${getTimestamp()} Vector DB initialization promise stored (async)`);
         } else {
-            console.error(`[DocumentManager] ${getTimestamp()} Vector DB disabled by config`);
+            logger.warn('Vector DB disabled; vector features are unavailable.');
         }
-
-        console.error(`[DocumentManager] ${getTimestamp()} CONSTRUCTOR END`);
-        console.error(`[DocumentManager] ${getTimestamp()} Memory: ${getMemoryUsage()}`);
     }
 
     /**
@@ -241,7 +116,7 @@ export class DocumentManager {
         try {
             await this.vectorDatabase.initialize();
         } catch (error) {
-            console.error('[DocumentManager] Failed to initialize vector database:', error);
+            logger.error('Failed to initialize vector database:', error);
             throw error;
         }
     }
@@ -251,35 +126,22 @@ export class DocumentManager {
      * This waits for async initialization to complete with a timeout
      */
     async ensureVectorDbReady(): Promise<boolean> {
-        const opId = `ensureVectorDbReady-${Date.now()}`;
-        startOperation(opId, 'ensureVectorDbReady');
-        
-        console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - useVectorDb: ${this.useVectorDb}, vectorDatabase exists: ${!!this.vectorDatabase}`);
-        console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - vectorDbInitPromise exists: ${!!this.vectorDbInitPromise}`);
-        
         if (!this.useVectorDb) {
-            console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - Vector DB disabled by config`);
-            endOperation(opId, 'success');
             return false;
         }
         
         if (!this.vectorDatabase) {
-            console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - Vector DB instance is null`);
-            endOperation(opId, 'success');
             return false;
         }
 
         // If there's an ongoing initialization, wait for it (with retry logic)
         if (this.vectorDbInitPromise) {
-            console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - Waiting for initialization promise...`);
-            
             const maxRetries = 3;
             const baseTimeoutMs = 30000; // 30 seconds base timeout
             
             for (let attempt = 0; attempt < maxRetries; attempt++) {
                 try {
                     const timeoutMs = baseTimeoutMs * Math.pow(2, attempt); // Exponential backoff: 30s, 60s, 120s
-                    console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - Attempt ${attempt + 1}/${maxRetries} with ${timeoutMs}ms timeout`);
                     
                     const timeoutPromise = new Promise<never>((_, reject) => {
                         setTimeout(() => {
@@ -288,26 +150,20 @@ export class DocumentManager {
                     });
 
                     await Promise.race([this.vectorDbInitPromise, timeoutPromise]);
-                    console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - Initialization promise resolved`);
                     break; // Success, exit retry loop
                 } catch (error) {
-                    console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - Attempt ${attempt + 1}/${maxRetries} failed:`, error);
-                    
                     if (attempt === maxRetries - 1) {
                         // All retries exhausted
-                        console.error('[DocumentManager] Vector DB initialization failed after all retries:', error);
-                        console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - Disabling vector DB due to initialization failure`);
+                        logger.error('Vector DB initialization failed after all retries:', error);
                         // Disable vector DB if initialization fails after all retries
                         this.useVectorDb = false;
                         this.vectorDatabase = null;
                         this.vectorDbInitPromise = null;
-                        endOperation(opId, 'error', error instanceof Error ? error : new Error(String(error)));
                         return false;
                     }
                     
                     // Wait before retry (exponential backoff)
                     const delayMs = Math.min(5000, 1000 * Math.pow(2, attempt));
-                    console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - Waiting ${delayMs}ms before retry...`);
                     await new Promise(resolve => setTimeout(resolve, delayMs));
                 }
             }
@@ -315,16 +171,11 @@ export class DocumentManager {
 
         // Check if vector DB is actually initialized
         const isInitialized = (this.vectorDatabase as any).isInitialized?.() ?? true;
-        console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - isInitialized: ${isInitialized}`);
         
         if (!isInitialized) {
-            console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - Vector DB reports not initialized`);
-            endOperation(opId, 'success');
             return false;
         }
 
-        console.error(`[DocumentManager] ${getTimestamp()} ensureVectorDbReady - Vector DB ready`);
-        endOperation(opId, 'success');
         return true;
     }
 
@@ -373,19 +224,19 @@ export class DocumentManager {
             }
 
             if (!isLanguageAllowed(detectedLanguages, acceptedLanguages)) {
-                console.warn(`[DocumentManager] Document rejected: language '${detectedLanguages.join(', ')}' not in accepted languages list`);
+                logger.warn(`Document rejected: language '${detectedLanguages.join(', ')}' not in accepted languages list`);
                 return null;
             }
 
             const vectorDbReady = await this.ensureVectorDbReady();
             if (!vectorDbReady || !this.vectorDatabase) {
-                throw new Error('Vector database is not available. Enable MCP_VECTOR_DB=true and ensure initialization succeeds.');
+                throw new Error('Vector database is not available. Ensure initialization succeeds.');
             }
 
             const contentHash = this.calculateContentHash(content);
             const existing = await this.vectorDatabase.getDocumentByContentHash(contentHash);
             if (existing) {
-                console.warn(`[DocumentManager] Duplicate content detected, existing document: ${existing.id}`);
+                logger.warn(`Duplicate content detected, existing document: ${existing.id}`);
             }
 
             const source = this.normalizeSource(metadata.source);
@@ -450,8 +301,8 @@ export class DocumentManager {
                 throw error;
             }
         } catch (error) {
-            console.error('[DocumentManager] UNHANDLED ERROR in addDocument:', error);
-            console.error('[DocumentManager] Error details:', {
+            logger.error('Unhandled error in addDocument:', error);
+            logger.error('Error details:', {
                 message: error instanceof Error ? error.message : String(error),
                 stack: error instanceof Error ? error.stack : undefined,
                 name: error instanceof Error ? error.name : undefined
@@ -604,13 +455,12 @@ export class DocumentManager {
         // Run tag generation in background without blocking
         setImmediate(async () => {
             try {
-                console.error(`[DocumentManager] Generating tags for document ${documentId}...`);
                 const tags = await this.generateTags(title, content);
                 
                 if (tags.length > 0) {
                     const vectorDbReady = await this.ensureVectorDbReady();
                     if (!vectorDbReady || !this.vectorDatabase) {
-                        console.warn('[DocumentManager] Vector DB not ready, skipping generated tags');
+                        logger.warn('Vector DB not ready, skipping generated tags');
                         return;
                     }
 
@@ -619,11 +469,9 @@ export class DocumentManager {
                         documentId,
                         normalizedTags.map(tag => ({ tag, is_generated: true }))
                     );
-
-                    console.error(`[DocumentManager] Generated ${normalizedTags.length} tags for document ${documentId}: ${normalizedTags.join(', ')}`);
                 }
             } catch (error) {
-                console.error(`[DocumentManager] Failed to generate tags for document ${documentId}:`, error);
+                logger.error(`Failed to generate tags for document ${documentId}:`, error);
             }
         });
     }
@@ -632,9 +480,6 @@ export class DocumentManager {
      * Generate tags using configured AI provider
      */
     private async generateTags(title: string, content: string): Promise<string[]> {
-        console.error('[DocumentManager] generateTags START');
-        console.error(`[DocumentManager] Title: ${title}, Content length: ${content.length}`);
-        
         // Truncate content if too long (keep first 2000 chars for context)
         const truncatedContent = content.length > 2000 ? content.substring(0, 2000) + '...' : content;
         
@@ -646,22 +491,17 @@ export class DocumentManager {
         let model = process.env.MCP_AI_MODEL;
         const apiKey = process.env.MCP_AI_API_KEY;
 
-        console.error(`[DocumentManager] AI Provider Config - baseUrl: ${baseUrl || 'NOT SET'}, model: ${model || 'NOT SET'}, apiKey: ${apiKey ? 'SET' : 'NOT SET'}`);
-
         if (baseUrl) {
             // Provide default model based on base URL if not specified
             if (!model) {
                 if (baseUrl.includes('synthetic.new')) {
                     model = 'hf:zai-org/glm-4.7';
-                    console.error(`[DocumentManager] Using default model for synthetic.new: ${model}`);
                 } else {
                     model = 'ministral-3-8b-instruct-2512';
-                    console.error(`[DocumentManager] Using default model for LM Studio: ${model}`);
                 }
             }
             
             try {
-                console.error('[DocumentManager] Attempting to generate tags via OpenAI-compatible API...');
                 const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
                 const v1BaseUrl = normalizedBaseUrl.endsWith('/v1') ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`;
                 
@@ -687,7 +527,6 @@ export class DocumentManager {
                 });
                 
                 const payloadText = await response.text();
-                console.error(`[DocumentManager] API Response status: ${response.status}, body: ${payloadText.substring(0, 200)}`);
                 
                 if (!response.ok) {
                     throw new Error(`OpenAI request failed (${response.status}): ${payloadText}`);
@@ -695,24 +534,22 @@ export class DocumentManager {
                 
                 const payload = JSON.parse(payloadText);
                 const responseText = payload?.choices?.[0]?.message?.content || '';
-                console.error(`[DocumentManager] AI response text: ${responseText}`);
                 
                 const tags = this.parseTagsFromResponse(responseText);
-                console.error(`[DocumentManager] Parsed tags: ${JSON.stringify(tags)}`);
                 
                 if (tags.length === 0) {
-                    console.warn('[DocumentManager] Tag generation returned empty array. This may be expected if MCP_TAG_GENERATION_ENABLED is not set to true, or if the AI provider could not generate valid tags.');
+                    logger.warn('Tag generation returned empty array.');
                 }
                 
                 return tags;
             } catch (error) {
-                console.error('[DocumentManager] Failed to generate tags with OpenAI provider:', error);
-                console.warn('[DocumentManager] Tag generation returned empty array due to error.');
+                logger.error('Failed to generate tags with OpenAI provider:', error);
+                logger.warn('Tag generation returned empty array due to error.');
                 return [];
             }
         }
 
-        console.warn('[DocumentManager] AI provider not configured. MCP_AI_BASE_URL must be set to enable tag generation.');
+        logger.warn('AI provider not configured. MCP_AI_BASE_URL must be set to enable tag generation.');
         return [];
     }
 
@@ -770,7 +607,6 @@ export class DocumentManager {
             let dataBuffer: Buffer;
             
             if (this.useStreaming && stats.size > fileSizeLimit) {
-                console.error(`[DocumentManager] Using streaming for large PDF: ${(stats.size / 1024 / 1024).toFixed(2)}MB`);
                 dataBuffer = await this.readFileStreaming(filePath);
             } else {
                 dataBuffer = await readFile(filePath);
@@ -827,7 +663,6 @@ export class DocumentManager {
             const fileSizeLimit = parseInt(process.env.MCP_STREAM_FILE_SIZE_LIMIT || '10485760'); // 10MB
             
             if (this.useStreaming && stats.size > fileSizeLimit) {
-                console.error(`[DocumentManager] Using streaming for large text file: ${(stats.size / 1024 / 1024).toFixed(2)}MB`);
                 const buffer = await this.readFileStreaming(filePath);
                 return buffer.toString('utf-8');
             } else {
@@ -853,7 +688,7 @@ export class DocumentManager {
             async function findFilesRecursive(dir: string, depth: number = 0) {
                 // Check depth limit to prevent infinite recursion
                 if (depth > MAX_DEPTH) {
-                    console.error(`[DocumentManager] Reached maximum depth (${MAX_DEPTH}), skipping: ${dir}`);
+                    logger.warn(`Reached maximum depth (${MAX_DEPTH}), skipping: ${dir}`);
                     return;
                 }
                 
@@ -862,7 +697,7 @@ export class DocumentManager {
                 
                 // Check if we've already visited this directory (cycle detection)
                 if (visitedDirs.has(realPath)) {
-                    console.error(`[DocumentManager] Skipping already visited directory (cycle detected): ${realPath}`);
+                    logger.warn(`Skipping already visited directory (cycle detected): ${realPath}`);
                     return;
                 }
                 visitedDirs.add(realPath);
@@ -889,8 +724,6 @@ export class DocumentManager {
             }
             
             await findFilesRecursive(this.uploadsDir);
-            console.error(`[DocumentManager] Found ${files.length} files in uploads directory (following symlinks)`);
-
             for (const filePath of files) {
                 try {
                     const fileName = path.basename(filePath);
@@ -969,7 +802,7 @@ export class DocumentManager {
             async function findFilesRecursive(dir: string, depth: number = 0) {
                 // Check depth limit to prevent infinite recursion
                 if (depth > MAX_DEPTH) {
-                    console.error(`[DocumentManager] Reached maximum depth (${MAX_DEPTH}), skipping: ${dir}`);
+                    logger.warn(`Reached maximum depth (${MAX_DEPTH}), skipping: ${dir}`);
                     return;
                 }
                 
@@ -978,7 +811,7 @@ export class DocumentManager {
                 
                 // Check if we've already visited this directory (cycle detection)
                 if (visitedDirs.has(realPath)) {
-                    console.error(`[DocumentManager] Skipping already visited directory (cycle detected): ${realPath}`);
+                    logger.warn(`Skipping already visited directory (cycle detected): ${realPath}`);
                     return;
                 }
                 visitedDirs.add(realPath);
@@ -1085,13 +918,8 @@ export class DocumentManager {
             const defaultLanguages = getDefaultQueryLanguages();
             if (defaultLanguages) {
                 filters.languages = defaultLanguages;
-                console.error(`[DocumentManager] Applying default language filter: ${defaultLanguages.join(', ')}`);
             }
         }
-
-        console.error(`[DocumentManager] query START - queryText: "${queryText}", limit: ${limit}, offset: ${offset}`);
-        console.error(`[DocumentManager] useVectorDb: ${this.useVectorDb}, vectorDatabase exists: ${!!this.vectorDatabase}`);
-        console.error(`[DocumentManager] useReranking: ${useReranking}, reranker exists: ${!!this.reranker}`);
 
         // Stage 1: Vector search with candidate retrieval (5x for reranking pool)
         let candidates: DocumentDiscoveryResult[] = [];
@@ -1104,38 +932,16 @@ export class DocumentManager {
         const candidateLimit = useReranking ? (limit + offset) * 5 : 1000;
         
         if (this.useVectorDb && this.vectorDatabase) {
-            console.error('[DocumentManager] Attempting vector search...');
             const vectorDbReady = await this.ensureVectorDbReady();
-            console.error(`[DocumentManager] vectorDbReady: ${vectorDbReady}`);
             
             if (vectorDbReady) {
                 try {
-                    console.error('[DocumentManager] Generating query embedding...');
                     const queryEmbedding = await this.embeddingProvider.generateEmbedding(queryText);
-                    console.error(`[DocumentManager] Query embedding generated with ${queryEmbedding.length} dimensions`);
-
-                    if (Object.keys(filters).length > 0) {
-                        console.error('[DocumentManager] Metadata filters will be applied after vector search (document-level filtering)');
-                    }
 
                     const vectorResults = await this.vectorDatabase.search(
                         queryEmbedding,
                         candidateLimit
                     );
-                    
-                    console.error(`[DocumentManager] Vector search returned ${vectorResults.length} results`);
-                    
-                    // Log individual vector results for debugging
-                    if (vectorResults.length > 0) {
-                        console.error('[DocumentManager] Individual vector results:');
-                        for (let i = 0; i < Math.min(5, vectorResults.length); i++) {
-                            const result = vectorResults[i];
-                            console.error(`  [${i}] doc_id: ${result.chunk.document_id}, score: ${result.score.toFixed(4)}`);
-                        }
-                        if (vectorResults.length > 5) {
-                            console.error(`  ... and ${vectorResults.length - 5} more`);
-                        }
-                    }
                     
                     // Group by document ID and aggregate scores
                     const docScoreMap = new Map<string, { score: number; chunks: number }>();
@@ -1149,25 +955,8 @@ export class DocumentManager {
                         });
                     }
                     
-                    console.error(`[DocumentManager] Grouped ${docScoreMap.size} unique documents`);
-                    
                     // Convert to results with average scores
                     const similarityThreshold = this.getSimilarityThreshold();
-                    console.error(`[DocumentManager] Similarity threshold: ${similarityThreshold}`);
-                    
-                    const preFilterResults = Array.from(docScoreMap.entries())
-                        .map(([docId, data]) => ({
-                            id: docId,
-                            title: '',
-                            score: data.score / data.chunks,
-                            updated_at: '',
-                            chunks_count: data.chunks
-                        }));
-                    
-                    console.error(`[DocumentManager] Pre-filter results (${preFilterResults.length}):`);
-                    for (const result of preFilterResults) {
-                        console.error(`  doc_id: ${result.id}, avg_score: ${result.score.toFixed(4)}, chunks: ${result.chunks_count}`);
-                    }
                     
                     candidates = Array.from(docScoreMap.entries())
                         .filter(([_, data]) => (data.score / data.chunks) >= similarityThreshold)
@@ -1179,17 +968,14 @@ export class DocumentManager {
                             chunks_count: data.chunks
                         }))
                         .sort((a, b) => b.score - a.score);
-                    
-                    console.error(`[DocumentManager] Post-filter results: ${candidates.length} documents passed threshold`);
                 } catch (error) {
-                    console.error('[DocumentManager] Vector search failed, falling back to keyword search:', error);
-                    console.error(`[DocumentManager] Error details: ${error instanceof Error ? error.message : String(error)}`);
+                    logger.warn('Vector search failed, falling back to keyword search:', error);
                 }
             } else {
-                console.error('[DocumentManager] Vector DB not ready, skipping vector search');
+                logger.warn('Vector DB not ready, skipping vector search');
             }
         } else {
-            console.error('[DocumentManager] Vector DB not enabled, skipping vector search');
+            logger.warn('Vector DB not enabled, skipping vector search');
         }
         
         // Fall back to keyword search if vector search returned insufficient results
@@ -1203,8 +989,6 @@ export class DocumentManager {
         let results: DocumentDiscoveryResult[] = candidates;
         if (useReranking && this.reranker && candidates.length > 0) {
             try {
-                console.error('[DocumentManager] Starting reranking stage...');
-                
                 // Fetch document contents for reranking
                 const documentContents: string[] = [];
                 for (const candidate of candidates) {
@@ -1218,14 +1002,11 @@ export class DocumentManager {
                 const reranked = await this.reranker.rerank(queryText, documentContents, {
                     topK: limit + offset
                 });
-                
-                console.error(`[DocumentManager] Reranking completed, got ${reranked.length} results`);
-                
+
                 // Map reranked indices to results
                 results = this.mapRerankedResults(reranked, candidates);
-                console.error(`[DocumentManager] Reranked ${results.length} documents`);
             } catch (error) {
-                console.error('[DocumentManager] Reranking failed, using vector-only results:', error);
+                logger.warn('Reranking failed, using vector-only results:', error);
                 // Fallback to vector-only results if reranking fails
                 results = candidates;
             }
@@ -1719,18 +1500,16 @@ export class DocumentManager {
      */
     async addCodeBlocks(documentId: string, codeBlocks: CodeBlock[], metadata: Record<string, any> = {}): Promise<void> {
         if (!this.useVectorDb || !this.vectorDatabase) {
-            console.warn('[DocumentManager] Vector DB not enabled, skipping code block storage');
+            logger.warn('Vector DB not enabled, skipping code block storage');
             return;
         }
 
         try {
             const vectorDbReady = await this.ensureVectorDbReady();
             if (!vectorDbReady) {
-                console.warn('[DocumentManager] Vector DB not ready, skipping code block storage');
+                logger.warn('Vector DB not ready, skipping code block storage');
                 return;
             }
-
-            console.error(`[DocumentManager] Generating embeddings for ${codeBlocks.length} code blocks`);
 
             // Generate embeddings in batch for better performance
             let embeddings: number[][] = [];
@@ -1740,17 +1519,15 @@ export class DocumentManager {
                 // Use batch API if available
                 if (this.embeddingProvider.generateEmbeddings) {
                     embeddings = await this.embeddingProvider.generateEmbeddings(codeBlockContents);
-                    console.error(`[DocumentManager] Batch API returned ${embeddings.length} embeddings for code blocks`);
                 } else {
                     // Fallback to individual requests
-                    console.error(`[DocumentManager] Provider doesn't support batch API, using sequential fallback`);
                     for (const content of codeBlockContents) {
                         const embedding = await this.embeddingProvider.generateEmbedding(content);
                         embeddings.push(embedding);
                     }
                 }
             } catch (error) {
-                console.error(`[DocumentManager] Failed to generate embeddings in batch for code blocks:`, error);
+                logger.warn('Failed to generate embeddings in batch for code blocks, falling back to sequential:', error);
                 // Fallback: process individually and skip failed ones
                 embeddings = [];
                 for (const content of codeBlockContents) {
@@ -1758,24 +1535,28 @@ export class DocumentManager {
                         const embedding = await this.embeddingProvider.generateEmbedding(content);
                         embeddings.push(embedding);
                     } catch (individualError) {
-                        console.warn(`[DocumentManager] Failed to generate embedding for code block, skipping:`, individualError);
+                        logger.warn('Failed to generate embedding for code block, skipping:', individualError);
                         embeddings.push([]); // Push empty embedding as placeholder
                     }
                 }
             }
 
             const codeBlocksWithEmbeddings: Array<{ block: CodeBlock; embedding: number[] }> = [];
+            let skippedBlocks = 0;
             for (let i = 0; i < codeBlocks.length; i++) {
                 const codeBlock = codeBlocks[i];
                 const embedding = embeddings[i];
 
                 // Skip code blocks without embeddings
                 if (!embedding || embedding.length === 0) {
-                    console.warn(`[DocumentManager] Skipping code block ${i} - no embedding generated`);
+                    skippedBlocks += 1;
                     continue;
                 }
 
                 codeBlocksWithEmbeddings.push({ block: codeBlock, embedding });
+            }
+            if (skippedBlocks > 0) {
+                logger.warn(`Skipped ${skippedBlocks} code blocks without embeddings`);
             }
 
             if (codeBlocksWithEmbeddings.length > 0) {
@@ -1791,12 +1572,11 @@ export class DocumentManager {
                 }));
 
                 await this.vectorDatabase.addCodeBlocks(rows);
-                console.error(`[DocumentManager] Added ${rows.length}/${codeBlocks.length} code blocks to vector database`);
             } else {
-                console.warn(`[DocumentManager] No code blocks with embeddings to add`);
+                logger.warn('No code blocks with embeddings to add');
             }
         } catch (error) {
-            console.error('[DocumentManager] Failed to add code blocks:', error);
+            logger.error('Failed to add code blocks:', error);
             // Continue without code blocks - non-critical error
         }
     }
@@ -1804,8 +1584,22 @@ export class DocumentManager {
     /**
      * Get performance and cache statistics
      */
-    getStats(): any {
-        const stats: any = {
+    getStats(): {
+        features: {
+            indexing: boolean;
+            vectorDb: boolean;
+            parallelProcessing: boolean;
+            streaming: boolean;
+            tagGeneration: boolean;
+            generatedTagsInQuery: boolean;
+        };
+        vectorDatabase?: {
+            type: 'lance';
+            path: string;
+        };
+        embedding_cache?: unknown;
+    } {
+        const stats = {
             features: {
                 indexing: this.useIndexing,
                 vectorDb: this.useVectorDb,

@@ -428,7 +428,7 @@ async function searchWithOpenAi(
     await manager.ensureVectorDbReady();
     const vectorDatabase = (manager as any).vectorDatabase;
     if (!vectorDatabase) {
-        throw new Error('Vector database is not available. Enable MCP_VECTOR_DB=true to use AI search.');
+        throw new Error('Vector database is not available.');
     }
 
     // Generate query embedding

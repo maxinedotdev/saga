@@ -342,7 +342,7 @@ server.addTool({
             await manager.ensureVectorDbReady();
             const vectorDatabase = (manager as any).vectorDatabase;
             if (!vectorDatabase) {
-                throw new Error('Vector database is not available. Enable MCP_VECTOR_DB=true to use document search.');
+                throw new Error('Vector database is not available.');
             }
             
             // Generate query embedding using documentManager's embedding provider
@@ -715,7 +715,7 @@ server.addTool({
             
             const vectorDatabase = (manager as any).vectorDatabase;
             if (!vectorDatabase) {
-                throw new Error('Vector database is not available. Enable MCP_VECTOR_DB=true to use code block search.');
+                throw new Error('Vector database is not available.');
             }
             
             // Generate query embedding using documentManager's embedding provider
@@ -774,7 +774,7 @@ server.addTool({
             
             const vectorDatabase = (manager as any).vectorDatabase;
             if (!vectorDatabase) {
-                throw new Error('Vector database is not available. Enable MCP_VECTOR_DB=true to use code block search.');
+                throw new Error('Vector database is not available.');
             }
             
             // Check if document exists
