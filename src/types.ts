@@ -107,6 +107,14 @@ export interface SearchRequest {
 
 export interface EmbeddingProvider {
     generateEmbedding(text: string): Promise<number[]>;
+    /**
+     * Generate embeddings for multiple texts in a batch.
+     * This method should be more efficient than calling generateEmbedding multiple times.
+     * Returns embeddings in the same order as the input texts.
+     * @param texts Array of texts to embed
+     * @returns Promise resolving to array of embedding vectors
+     */
+    generateEmbeddings?(texts: string[]): Promise<number[][]>;
     isAvailable(): boolean;
     getModelName(): string;
     getDimensions(): number;

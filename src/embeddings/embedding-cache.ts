@@ -9,11 +9,13 @@ export class EmbeddingCache {
     private maxSize: number;
     private hits = 0;
     private misses = 0;
+    private modelIdentifier: string;
 
-    constructor(maxSize?: number) {
+    constructor(maxSize?: number, modelIdentifier?: string) {
         this.maxSize = maxSize || parseInt(process.env.MCP_CACHE_SIZE || '1000');
+        this.modelIdentifier = modelIdentifier || process.env.MCP_EMBEDDING_MODEL || 'default';
         this.cache = new Map();
-        console.error(`[EmbeddingCache] Initialized with size: ${this.maxSize}`);
+        console.error(`[EmbeddingCache] Initialized with size: ${this.maxSize}, model: ${this.modelIdentifier}`);
     }
 
     /**
@@ -76,12 +78,29 @@ export class EmbeddingCache {
 
     /**
      * Create hash of text for cache key
+     * Includes model identifier to ensure cache isolation between models
      */
     private hash(text: string): string {
         return createHash('sha256')
-            .update(text.trim().toLowerCase())
+            .update(`${this.modelIdentifier}:${text.trim().toLowerCase()}`)
             .digest('hex')
             .substring(0, 16);
+    }
+
+    /**
+     * Update the model identifier for cache key generation
+     * Useful when switching models dynamically
+     */
+    setModelIdentifier(modelIdentifier: string): void {
+        this.modelIdentifier = modelIdentifier;
+        console.error(`[EmbeddingCache] Model identifier updated to: ${modelIdentifier}`);
+    }
+
+    /**
+     * Get the current model identifier
+     */
+    getModelIdentifier(): string {
+        return this.modelIdentifier;
     }
 
     /**
@@ -201,4 +220,77 @@ export class EmbeddingCache {
         
         console.error(`[EmbeddingCache] Imported ${this.cache.size} cached embeddings`);
     }
+}
+
+// ============================================================================
+// Singleton Pattern Implementation
+// ============================================================================
+
+/**
+ * Module-level singleton instance of EmbeddingCache
+ * This ensures cache persists across provider instances
+ */
+let globalEmbeddingCache: EmbeddingCache | null = null;
+let globalCacheConfig: { maxSize?: number; modelIdentifier?: string } | null = null;
+
+/**
+ * Factory function that returns the singleton EmbeddingCache instance
+ * Creates the cache on first call and reuses it thereafter
+ * @param maxSize Optional maximum cache size (only used on first creation)
+ * @param modelIdentifier Optional model identifier for cache key isolation
+ * @returns The singleton EmbeddingCache instance
+ */
+export function getEmbeddingCache(maxSize?: number, modelIdentifier?: string): EmbeddingCache {
+    const currentConfig = { maxSize, modelIdentifier };
+    
+    // Return cached instance if config hasn't changed
+    if (globalEmbeddingCache && 
+        globalCacheConfig?.maxSize === maxSize && 
+        globalCacheConfig?.modelIdentifier === modelIdentifier) {
+        return globalEmbeddingCache;
+    }
+    
+    // If cache exists but config changed, update the model identifier
+    if (globalEmbeddingCache && modelIdentifier) {
+        globalEmbeddingCache.setModelIdentifier(modelIdentifier);
+        globalCacheConfig = currentConfig;
+        return globalEmbeddingCache;
+    }
+    
+    // Create new singleton instance
+    globalEmbeddingCache = new EmbeddingCache(maxSize, modelIdentifier);
+    globalCacheConfig = currentConfig;
+    
+    console.error('[EmbeddingCache] Singleton instance created');
+    return globalEmbeddingCache;
+}
+
+/**
+ * Clear the global embedding cache singleton
+ * Useful for testing or when configuration changes significantly
+ */
+export function clearEmbeddingCache(): void {
+    if (globalEmbeddingCache) {
+        globalEmbeddingCache.clear();
+        console.error('[EmbeddingCache] Singleton cache cleared');
+    }
+}
+
+/**
+ * Reset the global embedding cache singleton entirely
+ * This forces a new instance to be created on next getEmbeddingCache call
+ * Useful for testing or complete cache invalidation
+ */
+export function resetEmbeddingCache(): void {
+    globalEmbeddingCache = null;
+    globalCacheConfig = null;
+    console.error('[EmbeddingCache] Singleton instance reset');
+}
+
+/**
+ * Check if a singleton embedding cache instance exists
+ * @returns True if singleton instance exists
+ */
+export function hasEmbeddingCache(): boolean {
+    return globalEmbeddingCache !== null;
 }
