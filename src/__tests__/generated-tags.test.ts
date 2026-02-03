@@ -4,7 +4,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { withBaseDirAndDocumentManager, withDocumentManager, withEnv } from './test-utils.js';
+import { withBaseDirAndDocumentManager, withDocumentManager, withEnv, createTestEmbeddingProvider } from './test-utils.js';
+import { DocumentManager } from '../document-manager.js';
 
 const TAG_ENV = { MCP_TAG_GENERATION_ENABLED: 'true', MCP_AI_BASE_URL: 'http://127.0.0.1:1234' };
 
@@ -305,7 +306,8 @@ describe('Tag Generation with Large Documents', () => {
 
 describe('Tag Generation Persistence', () => {
     it('should persist generated tags across manager instances', async () => {
-        await withTagsEnabled('persistence-', async (documentManager) => {
+        await withEnv(TAG_ENV, async () => {
+            await withBaseDirAndDocumentManager('persistence-', async ({ documentManager, baseDir }) => {
             // Add document
             const doc = await documentManager.addDocument(
                 'Persistence Test Document',
@@ -319,16 +321,16 @@ describe('Tag Generation Persistence', () => {
             await waitForTags();
 
             // Create new DocumentManager instance (simulating restart)
-            await withDocumentManager(async ({ documentManager: documentManager2 }) => {
-                // Retrieve document with new manager
-                const retrieved = await documentManager2.getDocument(doc.id);
-                expect(retrieved).not.toBeNull();
-                if (!retrieved) throw new Error('Retrieved document is null');
-                expect(retrieved.title).toBe('Persistence Test Document');
+            const embeddingProvider = createTestEmbeddingProvider();
+            const documentManager2 = new DocumentManager(embeddingProvider);
+            const retrieved = await documentManager2.getDocument(doc.id);
+            expect(retrieved).not.toBeNull();
+            if (!retrieved) throw new Error('Retrieved document is null');
+            expect(retrieved.title).toBe('Persistence Test Document');
 
-                // Check if metadata persisted
-                expect(retrieved.metadata?.tags).toBeDefined();
-                expect(retrieved.metadata.tags).toContain('test');
+            // Check if metadata persisted
+            expect(retrieved.metadata?.tags).toBeDefined();
+            expect(retrieved.metadata.tags).toContain('test');
             });
         });
     });

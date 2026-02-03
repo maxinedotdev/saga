@@ -286,6 +286,11 @@ export class LanceDBV1 implements ValidationDatabase {
             'keywords',
             'schema_version'
         ];
+
+        const isMissingTableError = (error: unknown): boolean => {
+            const message = error instanceof Error ? error.message : String(error);
+            return /not found/i.test(message) || /table .* was not found/i.test(message);
+        };
         
         for (const tableName of tableNames) {
             try {
@@ -293,15 +298,17 @@ export class LanceDBV1 implements ValidationDatabase {
                 this.setTableReference(tableName, table);
                 logger.debug(`Opened existing table: ${tableName}`);
             } catch (error) {
-                if ((error as Error).message.includes('Table not found')) {
+                if (isMissingTableError(error)) {
                     logger.debug(`Creating new table: ${tableName}`);
                     let sampleData: any[] = [];
+                    let sampleId: string | null = null;
                     
                     // Create sample data for schema inference
                     switch (tableName) {
                         case 'documents':
+                            sampleId = generateUUID();
                             sampleData = [{
-                                id: generateUUID(),
+                                id: sampleId,
                                 title: '',
                                 content: '',
                                 content_hash: '',
@@ -323,8 +330,9 @@ export class LanceDBV1 implements ValidationDatabase {
                             }];
                             break;
                         case 'document_tags':
+                            sampleId = generateUUID();
                             sampleData = [{
-                                id: generateUUID(),
+                                id: sampleId,
                                 document_id: '',
                                 tag: '',
                                 is_generated: false,
@@ -332,45 +340,49 @@ export class LanceDBV1 implements ValidationDatabase {
                             }];
                             break;
                         case 'document_languages':
+                            sampleId = generateUUID();
                             sampleData = [{
-                                id: generateUUID(),
+                                id: sampleId,
                                 document_id: '',
                                 language_code: '',
                                 created_at: getCurrentTimestamp()
                             }];
                             break;
                         case 'chunks':
+                            sampleId = generateUUID();
                             sampleData = [{
-                                id: generateUUID(),
+                                id: sampleId,
                                 document_id: '',
                                 chunk_index: 0,
                                 start_position: 0,
                                 end_position: 0,
                                 content: '',
                                 content_length: 0,
-                                embedding: generateSampleEmbedding(),
+                                embedding: generateSampleEmbedding(this.embeddingDim),
                                 surrounding_context: '',
                                 semantic_topic: '',
                                 created_at: getCurrentTimestamp()
                             }];
                             break;
                         case 'code_blocks':
+                            sampleId = generateUUID();
                             sampleData = [{
-                                id: generateUUID(),
+                                id: sampleId,
                                 document_id: '',
                                 block_id: '',
                                 block_index: 0,
                                 language: '',
                                 content: '',
                                 content_length: 0,
-                                embedding: generateSampleEmbedding(),
+                                embedding: generateSampleEmbedding(this.embeddingDim),
                                 source_url: '',
                                 created_at: getCurrentTimestamp()
                             }];
                             break;
                         case 'keywords':
+                            sampleId = generateUUID();
                             sampleData = [{
-                                id: generateUUID(),
+                                id: sampleId,
                                 keyword: '',
                                 document_id: '',
                                 source: 'title',
@@ -390,6 +402,9 @@ export class LanceDBV1 implements ValidationDatabase {
                     
                     const table = await this.db!.createTable(tableName, sampleData);
                     this.setTableReference(tableName, table);
+                    if (sampleId) {
+                        await table.delete(`id = '${sampleId}'`);
+                    }
                 } else {
                     throw error;
                 }
@@ -752,11 +767,14 @@ export class LanceDBV1 implements ValidationDatabase {
         }
 
         await withRetry(async () => {
-            await this.documentsTable!.update(`id = '${documentId}'`, [
-                ['chunks_count', `${chunksCount}`],
-                ['code_blocks_count', `${codeBlocksCount}`],
-                ['updated_at', `'${getCurrentTimestamp()}'`],
-            ]);
+            await this.documentsTable!.update({
+                where: `id = '${documentId}'`,
+                values: {
+                    chunks_count: chunksCount,
+                    code_blocks_count: codeBlocksCount,
+                    updated_at: getCurrentTimestamp(),
+                },
+            });
         }, 'updateDocumentCounts');
     }
 

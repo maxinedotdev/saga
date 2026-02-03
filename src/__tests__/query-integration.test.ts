@@ -16,7 +16,12 @@ const withQueryManager = async <T>(
     prefix: string,
     fn: (documentManager: import('../document-manager.js').DocumentManager) => Promise<T> | T
 ): Promise<T> => {
-    return await withBaseDirAndDocumentManager(prefix, async ({ documentManager }) => fn(documentManager));
+    return await withEnv({
+        MCP_ACCEPTED_LANGUAGES: 'en,no,es,unknown',
+        MCP_LANGUAGE_CONFIDENCE_THRESHOLD: '0.0',
+    }, async () => {
+        return await withBaseDirAndDocumentManager(prefix, async ({ documentManager }) => fn(documentManager));
+    });
 };
 
 describe('Query Integration Tests', () => {

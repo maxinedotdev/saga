@@ -192,7 +192,8 @@ describe('Language Detection', () => {
 
     describe('Query with Language Filter', () => {
         it('should find English document with language filter', async () => {
-            await withBaseDirAndDocumentManager('query-lang-test-', async ({ documentManager }) => {
+            await withEnv({ MCP_ACCEPTED_LANGUAGES: 'en,es' }, async () => {
+                await withBaseDirAndDocumentManager('query-lang-test-', async ({ documentManager }) => {
                 const doc1 = await documentManager.addDocument(
                     'Document 1',
                     'This is a test document about programming.',
@@ -228,6 +229,7 @@ describe('Language Detection', () => {
                 if (doc2) {
                     await documentManager.deleteDocument(doc2.id);
                 }
+                });
             });
         });
     });

@@ -361,8 +361,16 @@ export class DocumentManager {
     async addDocument(title: string, content: string, metadata: Record<string, any> = {}): Promise<Document | null> {
         try {
             const confidenceThreshold = getLanguageConfidenceThreshold();
-            const detectedLanguages = await detectLanguages(content, confidenceThreshold);
+            let detectedLanguages = await detectLanguages(content, confidenceThreshold);
             const acceptedLanguages = getAcceptedLanguages();
+            const minLetterCount = 20;
+
+            if (!isLanguageAllowed(detectedLanguages, acceptedLanguages)) {
+                const letterCount = (content.match(/\p{L}/gu) ?? []).length;
+                if (letterCount < minLetterCount) {
+                    detectedLanguages = ['unknown'];
+                }
+            }
 
             if (!isLanguageAllowed(detectedLanguages, acceptedLanguages)) {
                 console.warn(`[DocumentManager] Document rejected: language '${detectedLanguages.join(', ')}' not in accepted languages list`);
@@ -1236,6 +1244,35 @@ export class DocumentManager {
                     id: document.id,
                     title: document.title,
                     score: result.score,
+                    updated_at: document.updated_at,
+                    chunks_count: document.chunks.length,
+                    metadata: includeMetadata ? document.metadata : undefined
+                });
+            }
+        }
+
+        // Fallback: if filters are present but no results matched, scan documents by metadata + text match.
+        if (finalResults.length === 0 && Object.keys(filters).length > 0) {
+            const queryLower = queryText.trim().toLowerCase();
+            const documents = await this.getAllDocuments();
+
+            for (const document of documents) {
+                if (!this.matchesFilters(document.metadata, filters)) {
+                    continue;
+                }
+
+                if (queryLower.length > 0) {
+                    const title = document.title?.toLowerCase() ?? '';
+                    const content = document.content?.toLowerCase() ?? '';
+                    if (!title.includes(queryLower) && !content.includes(queryLower)) {
+                        continue;
+                    }
+                }
+
+                finalResults.push({
+                    id: document.id,
+                    title: document.title,
+                    score: 1,
                     updated_at: document.updated_at,
                     chunks_count: document.chunks.length,
                     metadata: includeMetadata ? document.metadata : undefined
