@@ -1384,7 +1384,13 @@ export class DocumentManager {
 
         // Stage 1: Vector search with candidate retrieval (5x for reranking pool)
         let candidates: DocumentDiscoveryResult[] = [];
-        const candidateLimit = useReranking ? (limit + offset) * 5 : limit + offset + 10;
+        
+        // Fetch a large number of candidates to ensure we get chunks from all relevant documents
+        // This is necessary because:
+        // 1. Multiple chunks can belong to the same document
+        // 2. We need to paginate at the document level, not chunk level
+        // 3. Metadata filters may eliminate some documents after retrieval
+        const candidateLimit = useReranking ? (limit + offset) * 5 : 1000;
         
         if (this.useVectorDb && this.vectorDatabase) {
             console.error('[DocumentManager] Attempting vector search...');
@@ -1698,6 +1704,7 @@ export class DocumentManager {
 
     /**
      * Add code blocks to the vector database for a document
+     * Now uses batch embedding API for improved performance
      * @param documentId - The document ID to associate code blocks with
      * @param codeBlocks - Array of code blocks to add
      * @param metadata - Additional metadata to attach to code blocks
@@ -1722,28 +1729,68 @@ export class DocumentManager {
                 return;
             }
 
-            // Generate embeddings for code blocks
-            const codeBlocksWithEmbeddings: CodeBlock[] = [];
-            for (const codeBlock of codeBlocks) {
-                try {
-                    const embedding = await this.embeddingProvider.generateEmbedding(codeBlock.content);
-                    codeBlocksWithEmbeddings.push({
-                        ...codeBlock,
-                        document_id: documentId,
-                        embedding,
-                        metadata: {
-                            ...codeBlock.metadata,
-                            ...metadata,
-                        },
-                    });
-                } catch (error) {
-                    console.warn(`[DocumentManager] Failed to generate embedding for code block: ${error}`);
+            console.error(`[DocumentManager] Generating embeddings for ${codeBlocks.length} code blocks`);
+
+            // Generate embeddings in batch for better performance
+            let embeddings: number[][] = [];
+            const codeBlockContents = codeBlocks.map(cb => cb.content);
+
+            try {
+                // Use batch API if available
+                if (this.embeddingProvider.generateEmbeddings) {
+                    embeddings = await this.embeddingProvider.generateEmbeddings(codeBlockContents);
+                    console.error(`[DocumentManager] Batch API returned ${embeddings.length} embeddings for code blocks`);
+                } else {
+                    // Fallback to individual requests
+                    console.error(`[DocumentManager] Provider doesn't support batch API, using sequential fallback`);
+                    for (const content of codeBlockContents) {
+                        const embedding = await this.embeddingProvider.generateEmbedding(content);
+                        embeddings.push(embedding);
+                    }
                 }
+            } catch (error) {
+                console.error(`[DocumentManager] Failed to generate embeddings in batch for code blocks:`, error);
+                // Fallback: process individually and skip failed ones
+                embeddings = [];
+                for (const content of codeBlockContents) {
+                    try {
+                        const embedding = await this.embeddingProvider.generateEmbedding(content);
+                        embeddings.push(embedding);
+                    } catch (individualError) {
+                        console.warn(`[DocumentManager] Failed to generate embedding for code block, skipping:`, individualError);
+                        embeddings.push([]); // Push empty embedding as placeholder
+                    }
+                }
+            }
+
+            // Build code blocks with embeddings
+            const codeBlocksWithEmbeddings: CodeBlock[] = [];
+            for (let i = 0; i < codeBlocks.length; i++) {
+                const codeBlock = codeBlocks[i];
+                const embedding = embeddings[i];
+
+                // Skip code blocks without embeddings
+                if (!embedding || embedding.length === 0) {
+                    console.warn(`[DocumentManager] Skipping code block ${i} - no embedding generated`);
+                    continue;
+                }
+
+                codeBlocksWithEmbeddings.push({
+                    ...codeBlock,
+                    document_id: documentId,
+                    embedding,
+                    metadata: {
+                        ...codeBlock.metadata,
+                        ...metadata,
+                    },
+                });
             }
 
             if (codeBlocksWithEmbeddings.length > 0) {
                 await addCodeBlocksMethod.call(this.vectorDatabase, codeBlocksWithEmbeddings);
-                console.log(`[DocumentManager] Added ${codeBlocksWithEmbeddings.length} code blocks to vector database`);
+                console.log(`[DocumentManager] Added ${codeBlocksWithEmbeddings.length}/${codeBlocks.length} code blocks to vector database`);
+            } else {
+                console.warn(`[DocumentManager] No code blocks with embeddings to add`);
             }
         } catch (error) {
             console.error('[DocumentManager] Failed to add code blocks:', error);

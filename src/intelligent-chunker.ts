@@ -560,6 +560,7 @@ export class IntelligentChunker {
 
     /**
      * Recursive chunking with hierarchical separators (LangChain-inspired)
+     * Now uses batch embedding API for improved performance
      */
     private async recursiveChunk(
         documentId: string,
@@ -608,8 +609,10 @@ export class IntelligentChunker {
         const splits = this.splitWithSeparators(content, separators, maxSize);
         console.error(`[IntelligentChunker] Created ${splits.length} splits`);
 
-        let chunkIndex = 0;
+        // Prepare chunk contents with overlap
+        const chunkContents: string[] = [];
         let globalPosition = 0;
+        const chunkPositions: Array<{ start: number; end: number }> = [];
 
         for (let i = 0; i < splits.length; i++) {
             const split = splits[i];
@@ -622,27 +625,51 @@ export class IntelligentChunker {
                 chunkContent = overlapText + ' ' + chunkContent;
             }
 
-            console.error(`[IntelligentChunker] Generating embedding for chunk ${i} (${chunkContent.length} chars)`);
-            let embeddings: number[];
-            try {
-                embeddings = await this.embeddingProvider.generateEmbedding(chunkContent);
-                console.error(`[IntelligentChunker] Generated embedding for chunk ${i} with ${embeddings.length} dimensions`);
-            } catch (error) {
-                console.error(`[IntelligentChunker] FAILED to generate embedding for chunk ${i}:`, error);
-                console.error(`[IntelligentChunker] Creating chunk ${i} WITHOUT embedding - semantic search will not work for this chunk`);
-                embeddings = [];
-            }
             const startPos = globalPosition;
             const endPos = globalPosition + split.length;
 
+            chunkContents.push(chunkContent.trim());
+            chunkPositions.push({ start: startPos, end: endPos });
+            globalPosition = endPos;
+        }
+
+        // Generate embeddings in batch for better performance
+        console.error(`[IntelligentChunker] Generating embeddings for ${chunkContents.length} chunks using batch API`);
+        let embeddings: number[][] = [];
+        try {
+            // Check if provider supports batch embeddings
+            if (this.embeddingProvider.generateEmbeddings) {
+                embeddings = await this.embeddingProvider.generateEmbeddings(chunkContents);
+                console.error(`[IntelligentChunker] Batch API returned ${embeddings.length} embeddings`);
+            } else {
+                // Fallback to individual requests (sequential for backward compatibility)
+                console.error(`[IntelligentChunker] Provider doesn't support batch API, using sequential fallback`);
+                for (const content of chunkContents) {
+                    const embedding = await this.embeddingProvider.generateEmbedding(content);
+                    embeddings.push(embedding);
+                }
+            }
+        } catch (error) {
+            console.error(`[IntelligentChunker] FAILED to generate embeddings in batch:`, error);
+            console.error(`[IntelligentChunker] Creating chunks WITHOUT embeddings - semantic search will not work`);
+            // Fill with empty arrays as fallback
+            embeddings = chunkContents.map(() => []);
+        }
+
+        // Create chunk objects
+        for (let i = 0; i < chunkContents.length; i++) {
+            const chunkContent = chunkContents[i];
+            const position = chunkPositions[i];
+            const embedding = embeddings[i] || [];
+
             chunks.push({
-                id: `${documentId}_chunk_${chunkIndex}`,
+                id: `${documentId}_chunk_${i}`,
                 document_id: documentId,
-                chunk_index: chunkIndex,
-                content: chunkContent.trim(),
-                embeddings,
-                start_position: startPos,
-                end_position: endPos,
+                chunk_index: i,
+                content: chunkContent,
+                embeddings: embedding,
+                start_position: position.start,
+                end_position: position.end,
                 metadata: {
                     ...baseMetadata,
                     chunk_size: chunkContent.length,
@@ -651,9 +678,7 @@ export class IntelligentChunker {
                 } as ChunkMetadata
             });
 
-            console.error(`[IntelligentChunker] Created chunk ${chunkIndex} with ${embeddings.length} embedding dimensions`);
-            globalPosition = endPos;
-            chunkIndex++;
+            console.error(`[IntelligentChunker] Created chunk ${i} with ${embedding.length} embedding dimensions`);
         }
 
         console.error(`[IntelligentChunker] recursiveChunk END - created ${chunks.length} chunks`);
@@ -718,39 +743,47 @@ export class IntelligentChunker {
 
     /**
      * Apply semantic refinement using embeddings similarity
+     * Now uses batch embedding API for better performance when merging chunks
      */
     private async applySemanticRefinement(
-        chunks: DocumentChunk[], 
+        chunks: DocumentChunk[],
         options: ChunkOptions
     ): Promise<DocumentChunk[]> {
         if (chunks.length < 2) return chunks;
-        
+
         console.error(`[IntelligentChunker] Applying semantic refinement to ${chunks.length} chunks`);
-        
+
         const refinedChunks: DocumentChunk[] = [];
+        const pendingMerges: Array<{ index: number; content: string; chunk: DocumentChunk; nextChunk: DocumentChunk }> = [];
         let currentChunk = chunks[0];
-        
+
+        // First pass: identify which chunks need merging
         for (let i = 1; i < chunks.length; i++) {
             const nextChunk = chunks[i];
-            
+
             // Calculate semantic similarity between chunks
             const similarity = this.calculateSimilarity(
                 currentChunk.embeddings || [],
                 nextChunk.embeddings || []
             );
-            
-            // If chunks are very similar and combined size is reasonable, merge them
-            if (similarity > 0.8 && 
+
+            // If chunks are very similar and combined size is reasonable, mark for merge
+            if (similarity > 0.8 &&
                 (currentChunk.content.length + nextChunk.content.length) <= (options.maxSize || 500) * 1.5) {
-                
-                // Merge chunks
+
                 const mergedContent = currentChunk.content + '\n' + nextChunk.content;
-                const mergedEmbeddings = await this.embeddingProvider.generateEmbedding(mergedContent);
-                
+                pendingMerges.push({
+                    index: refinedChunks.length,
+                    content: mergedContent,
+                    chunk: currentChunk,
+                    nextChunk
+                });
+
+                // Create placeholder chunk (will be updated with actual embeddings)
                 currentChunk = {
                     ...currentChunk,
                     content: mergedContent,
-                    embeddings: mergedEmbeddings,
+                    embeddings: [], // Placeholder
                     end_position: nextChunk.end_position,
                     metadata: {
                         ...currentChunk.metadata,
@@ -764,15 +797,47 @@ export class IntelligentChunker {
                 currentChunk = nextChunk;
             }
         }
-        
+
         refinedChunks.push(currentChunk);
-        
+
+        // Generate embeddings for merged chunks in batch
+        if (pendingMerges.length > 0) {
+            console.error(`[IntelligentChunker] Generating embeddings for ${pendingMerges.length} merged chunks`);
+            const mergeContents = pendingMerges.map(m => m.content);
+
+            try {
+                let mergedEmbeddings: number[][] = [];
+
+                // Use batch API if available
+                if (this.embeddingProvider.generateEmbeddings) {
+                    mergedEmbeddings = await this.embeddingProvider.generateEmbeddings(mergeContents);
+                } else {
+                    // Sequential fallback
+                    for (const content of mergeContents) {
+                        const embedding = await this.embeddingProvider.generateEmbedding(content);
+                        mergedEmbeddings.push(embedding);
+                    }
+                }
+
+                // Update merged chunks with embeddings
+                for (let i = 0; i < pendingMerges.length; i++) {
+                    const { index } = pendingMerges[i];
+                    if (index < refinedChunks.length) {
+                        refinedChunks[index].embeddings = mergedEmbeddings[i] || [];
+                    }
+                }
+            } catch (error) {
+                console.error(`[IntelligentChunker] Failed to generate embeddings for merged chunks:`, error);
+                // Chunks will have empty embeddings, but refinement still succeeded
+            }
+        }
+
         // Re-index chunks
         refinedChunks.forEach((chunk, index) => {
             chunk.chunk_index = index;
             chunk.id = `${chunk.document_id}_chunk_${index}`;
         });
-        
+
         console.error(`[IntelligentChunker] Refined to ${refinedChunks.length} chunks`);
         return refinedChunks;
     }
