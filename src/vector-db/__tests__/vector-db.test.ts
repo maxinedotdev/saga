@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { LanceDBV1, createVectorDatabase } from '../index.js';
-import { DocumentChunk, CodeBlock } from '../../types.js';
+import { ChunkV1, CodeBlockV1 } from '../../types/database-v1.js';
 import {
     createTestChunk,
     createTestCodeBlock,
@@ -17,7 +17,7 @@ import {
 } from '../../__tests__/test-utils.js';
 
 // Test data
-const testChunks: DocumentChunk[] = [
+const testChunks: Array<Omit<ChunkV1, 'created_at'>> = [
     createTestChunk('chunk1', 'doc1', 'This is a test document about artificial intelligence.', createTestEmbedding(1)),
     createTestChunk('chunk2', 'doc1', 'Machine learning is a subset of AI.', createTestEmbedding(2)),
     createTestChunk('chunk3', 'doc2', 'Natural language processing is important.', createTestEmbedding(3)),
@@ -25,7 +25,7 @@ const testChunks: DocumentChunk[] = [
     createTestChunk('chunk5', 'doc3', 'Embeddings represent text as numerical vectors.', createTestEmbedding(5))
 ];
 
-const testCodeBlocks: CodeBlock[] = [
+const testCodeBlocks: Array<Omit<CodeBlockV1, 'created_at'>> = [
     createTestCodeBlock('cb1', 'doc1', 'block-1', 'javascript', 'const x = 1;\nconsole.log(x);', createTestEmbedding(10)),
     createTestCodeBlock('cb2', 'doc1', 'block-1', 'python', 'x = 1\nprint(x)', createTestEmbedding(11)),
     createTestCodeBlock('cb3', 'doc1', 'block-2', 'typescript', 'const x: number = 1;\nconsole.log(x);', createTestEmbedding(12)),
@@ -368,7 +368,7 @@ describe('Vector Database Unit Tests', () => {
             }
 
             await withVectorDb(async (lanceDB) => {
-                const multiLangBlocks: CodeBlock[] = [
+                const multiLangBlocks: Array<Omit<CodeBlockV1, 'created_at'>> = [
                     createTestCodeBlock('ml1', 'doc1', 'tabbed-1', 'javascript', 'const x = 1;', createTestEmbedding(20)),
                     createTestCodeBlock('ml2', 'doc1', 'tabbed-1', 'python', 'x = 1', createTestEmbedding(21)),
                     createTestCodeBlock('ml3', 'doc1', 'tabbed-1', 'typescript', 'const x: number = 1;', createTestEmbedding(22)),
@@ -385,7 +385,7 @@ describe('Vector Database Unit Tests', () => {
                     }
                     acc[cb.block_id].push(cb);
                     return acc;
-                }, {} as Record<string, CodeBlock[]>);
+                }, {} as Record<string, CodeBlockV1[]>);
 
                 expect(groupedByBlockId['tabbed-1']?.length).toBe(3);
 
@@ -402,7 +402,7 @@ describe('Vector Database Unit Tests', () => {
             }
 
             await withVectorDb(async (lanceDB) => {
-                const multiLangBlocks: CodeBlock[] = [
+                const multiLangBlocks: Array<Omit<CodeBlockV1, 'created_at'>> = [
                     createTestCodeBlock('ml1', 'doc1', 'tabbed-1', 'javascript', 'const x = 1;', createTestEmbedding(20)),
                     createTestCodeBlock('ml2', 'doc1', 'tabbed-1', 'python', 'x = 1', createTestEmbedding(21)),
                     createTestCodeBlock('ml3', 'doc1', 'tabbed-1', 'typescript', 'const x: number = 1;', createTestEmbedding(22)),

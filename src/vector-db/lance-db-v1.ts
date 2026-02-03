@@ -782,19 +782,32 @@ export class LanceDBV1 implements ValidationDatabase {
      * @param chunks - Chunks to add
      * @param batchSize - Batch size for insertion (default: 1000)
      */
-    async addChunks(chunks: Omit<ChunkV1, 'id' | 'created_at'>[], batchSize: number = 1000): Promise<void> {
+    async addChunks(
+        chunks: Array<Omit<ChunkV1, 'created_at' | 'id'> & { id?: string }>,
+        batchSize: number = 1000
+    ): Promise<void> {
         if (!this.initialized) {
             throw new Error('Database not initialized');
         }
-        
+
+        const validChunks = chunks.filter((chunk) => (chunk.embedding ?? []).length > 0);
+        if (validChunks.length === 0) {
+            logger.warn('Skipped addChunks: no chunks with embeddings provided');
+            return;
+        }
+
+        if (validChunks.length !== chunks.length) {
+            logger.warn(`Skipped ${chunks.length - validChunks.length} chunks without embeddings`);
+        }
+
         const now = getCurrentTimestamp();
         
         return withRetry(async () => {
-            for (let i = 0; i < chunks.length; i += batchSize) {
-                const batch = chunks.slice(i, i + batchSize);
+            for (let i = 0; i < validChunks.length; i += batchSize) {
+                const batch = validChunks.slice(i, i + batchSize);
                 const chunksWithIds: ChunkV1[] = batch.map(chunk => ({
-                    id: generateUUID(),
                     ...chunk,
+                    id: chunk.id ?? generateUUID(),
                     created_at: now
                 }));
                 
@@ -810,19 +823,32 @@ export class LanceDBV1 implements ValidationDatabase {
      * @param blocks - Code blocks to add
      * @param batchSize - Batch size for insertion (default: 1000)
      */
-    async addCodeBlocks(blocks: Omit<CodeBlockV1, 'id' | 'created_at'>[], batchSize: number = 1000): Promise<void> {
+    async addCodeBlocks(
+        blocks: Array<Omit<CodeBlockV1, 'created_at' | 'id'> & { id?: string }>,
+        batchSize: number = 1000
+    ): Promise<void> {
         if (!this.initialized) {
             throw new Error('Database not initialized');
         }
-        
+
+        const validBlocks = blocks.filter((block) => (block.embedding ?? []).length > 0);
+        if (validBlocks.length === 0) {
+            logger.warn('Skipped addCodeBlocks: no code blocks with embeddings provided');
+            return;
+        }
+
+        if (validBlocks.length !== blocks.length) {
+            logger.warn(`Skipped ${blocks.length - validBlocks.length} code blocks without embeddings`);
+        }
+
         const now = getCurrentTimestamp();
         
         return withRetry(async () => {
-            for (let i = 0; i < blocks.length; i += batchSize) {
-                const batch = blocks.slice(i, i + batchSize);
+            for (let i = 0; i < validBlocks.length; i += batchSize) {
+                const batch = validBlocks.slice(i, i + batchSize);
                 const blocksWithIds: CodeBlockV1[] = batch.map(block => ({
-                    id: generateUUID(),
                     ...block,
+                    id: block.id ?? generateUUID(),
                     created_at: now
                 }));
                 

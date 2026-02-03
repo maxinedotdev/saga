@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { DocumentChunk } from '../types.js';
+import { ChunkV1 } from '../types/database-v1.js';
 import { createTestChunk, createTestEmbedding, withVectorDb } from './test-utils.js';
 
 interface BenchmarkResult {
@@ -31,8 +31,8 @@ const benchmarkResults: BenchmarkStats = {
     memoryUsage: []
 };
 
-const createTestDocuments = (count: number): DocumentChunk[] => {
-    const chunks: DocumentChunk[] = [];
+const createTestDocuments = (count: number): Array<Omit<ChunkV1, 'created_at'>> => {
+    const chunks: Array<Omit<ChunkV1, 'created_at'>> = [];
     for (let i = 0; i < count; i++) {
         const chunk = createTestChunk(
             `bench-chunk-${i}`,
@@ -89,7 +89,11 @@ const runBenchmark = async (
     return avgTime;
 };
 
-async function benchmarkSearchPerformance(db: any, dbType: string, chunks: DocumentChunk[]) {
+async function benchmarkSearchPerformance(
+    db: any,
+    dbType: string,
+    chunks: Array<Omit<ChunkV1, 'created_at'>>
+) {
     const iterations = Math.min(10, Math.max(5, Math.floor(100 / chunks.length)));
     
     await db.search(createTestEmbedding(0), 5);

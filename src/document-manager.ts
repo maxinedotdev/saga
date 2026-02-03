@@ -1452,6 +1452,7 @@ export class DocumentManager {
     ): Record<string, any> {
         const manualTags = Array.from(new Set(tags.filter(tag => !tag.is_generated).map(tag => tag.tag)));
         const generatedTags = Array.from(new Set(tags.filter(tag => tag.is_generated).map(tag => tag.tag)));
+        const uniqueLanguages = Array.from(new Set(languages));
 
         return {
             source: document.source,

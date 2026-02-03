@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { CodeBlock, Document, DocumentChunk, EmbeddingProvider } from '../types.js';
+import { ChunkV1, CodeBlockV1 } from '../types/database-v1.js';
 import { createLazyEmbeddingProvider, clearEmbeddingProviderCache } from '../embedding-provider.js';
 import { DocumentManager } from '../document-manager.js';
 import { LanceDBV1 } from '../vector-db/index.js';
@@ -257,15 +258,17 @@ export const createTestChunk = (
     content: string,
     embeddings?: number[],
     metadata: Record<string, unknown> = { test: true }
-): DocumentChunk => ({
+): Omit<ChunkV1, 'created_at'> => ({
     id,
     document_id: documentId,
     chunk_index: 0,
-    content,
-    embeddings,
     start_position: 0,
     end_position: content.length,
-    metadata
+    content,
+    content_length: content.length,
+    embedding: embeddings ?? [],
+    surrounding_context: (metadata as Record<string, any>).surrounding_context ?? null,
+    semantic_topic: (metadata as Record<string, any>).semantic_topic ?? null,
 });
 
 export const createTestCodeBlock = (
@@ -277,14 +280,14 @@ export const createTestCodeBlock = (
     embedding?: number[],
     metadata: Record<string, unknown> = { test: true },
     sourceUrl: string = 'https://example.com'
-): CodeBlock => ({
+): Omit<CodeBlockV1, 'created_at'> => ({
     id,
     document_id: documentId,
     block_id: blockId,
     block_index: 0,
     language,
     content,
-    embedding,
-    metadata,
-    source_url: sourceUrl
+    content_length: content.length,
+    embedding: embedding ?? [],
+    source_url: sourceUrl ?? (metadata as Record<string, any>).source_url ?? null,
 });
