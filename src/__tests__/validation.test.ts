@@ -191,7 +191,11 @@ describe('Embedding Timeout Integration Tests', () => {
                 const provider = createTestEmbeddingProvider();
 
                 expect(provider.isAvailable()).toBe(true);
-                expect(provider.getModelName()).toBe('text-embedding-3-small');
+                const expectedModel =
+                    process.env.MCP_USE_MOCK_EMBEDDINGS === 'true'
+                        ? 'mock-embedding-provider'
+                        : 'text-embedding-3-small';
+                expect(provider.getModelName()).toBe(expectedModel);
             });
         });
     });
