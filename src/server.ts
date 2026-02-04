@@ -260,6 +260,9 @@ server.addTool({
                 }
                 return `Document added successfully with ID: ${document.id}`;
             }
+            if (!args.content) {
+                throw new Error('Missing content. Provide content or use source="uploads".');
+            }
             const normalizedContentType = normalizeContentType(
                 (typeof metadata.contentType === 'string' ? metadata.contentType : undefined)
                 || (typeof metadata.content_type === 'string' ? metadata.content_type : undefined)
@@ -270,8 +273,8 @@ server.addTool({
                 || normalizedContentType === 'application/xhtml+xml'
                 || looksLikeHtml(args.content);
 
-            let title = args.title as string;
-            let content = args.content as string;
+            let title = args.title ?? 'Untitled';
+            let content = args.content;
             let codeBlocks: ReturnType<typeof extractHtmlContent>['codeBlocks'] = [];
 
             if (isHtml) {
@@ -280,7 +283,7 @@ server.addTool({
                     sourceUrl,
                     fallbackTitle: args.title,
                 });
-                title = extracted.title || args.title;
+                title = extracted.title || args.title || 'Untitled';
                 content = extracted.text || args.content;
                 codeBlocks = extracted.codeBlocks;
 
