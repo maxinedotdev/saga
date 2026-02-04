@@ -1599,7 +1599,21 @@ export class DocumentManager {
         };
         embedding_cache?: unknown;
     } {
-        const stats = {
+        const stats: {
+            features: {
+                indexing: boolean;
+                vectorDb: boolean;
+                parallelProcessing: boolean;
+                streaming: boolean;
+                tagGeneration: boolean;
+                generatedTagsInQuery: boolean;
+            };
+            vectorDatabase?: {
+                type: 'lance';
+                path: string;
+            };
+            embedding_cache?: unknown;
+        } = {
             features: {
                 indexing: this.useIndexing,
                 vectorDb: this.useVectorDb,
