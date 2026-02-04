@@ -443,7 +443,7 @@ export class LanceDBV1 implements ValidationDatabase {
 
     /**
      * Ensure schema version matches expected version.
-     * This implementation is migrationless: mismatches require manual deletion.
+     * Schema mismatches require manual deletion of the database.
      */
     private async ensureSchemaVersion(): Promise<void> {
         if (!this.schemaVersionTable) {

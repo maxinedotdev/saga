@@ -392,7 +392,7 @@ Inverted index for keyword search. Replaces in-memory keyword index.
 
 ### Table: `schema_version`
 
-Tracks schema version for compatibility checks (Saga v1 is migrationless).
+Tracks schema version for compatibility checks.
 
 #### Columns
 
