@@ -10,10 +10,6 @@ import { crawlDocumentation } from './documentation-crawler.js';
 import { extractHtmlContent, looksLikeHtml } from './html-extraction.js';
 import { getLogger } from './utils.js';
 import type { Document } from './types.js';
-import { existsSync } from 'fs';
-import { homedir } from 'os';
-import { join } from 'path';
-import { spawn } from 'child_process';
 
 const logger = getLogger('SagaServer');
 const getTimestamp = () => new Date().toISOString();
@@ -100,98 +96,6 @@ initializeMlxAutoConfig();
 
 // ============================================
 // END MLX AUTO-CONFIGURATION
-// ============================================
-
-// ============================================
-// VLLM-METAL AUTO-CONFIGURATION
-// ============================================
-async function initializeVllmMetalAutoConfig() {
-    logger.info('vLLM-metal auto-configuration starting...');
-
-    try {
-        const { isAppleSilicon } = await import('./reranking/apple-silicon-detection.js');
-
-        if (!isAppleSilicon()) {
-            logger.info('vLLM-metal auto-config skipped (not Apple Silicon)');
-            return;
-        }
-
-        if (process.env.MCP_EMBEDDING_AUTO_CONFIGURE_VLLM === 'false') {
-            logger.info('vLLM-metal auto-config disabled by MCP_EMBEDDING_AUTO_CONFIGURE_VLLM');
-            return;
-        }
-
-        const existingBaseUrl = process.env.MCP_EMBEDDING_BASE_URL;
-        const baseUrl = existingBaseUrl
-            || process.env.MCP_EMBEDDING_VLLM_BASE_URL
-            || 'http://127.0.0.1:8000';
-        const modelName = process.env.MCP_EMBEDDING_MODEL
-            || process.env.MCP_EMBEDDING_VLLM_MODEL
-            || 'llama-nemotron-embed-1b-v2';
-
-        if (!process.env.MCP_EMBEDDING_PROVIDER) {
-            process.env.MCP_EMBEDDING_PROVIDER = 'openai';
-        }
-        if (!process.env.MCP_EMBEDDING_BASE_URL) {
-            process.env.MCP_EMBEDDING_BASE_URL = baseUrl;
-        }
-        if (!process.env.MCP_EMBEDDING_MODEL) {
-            process.env.MCP_EMBEDDING_MODEL = modelName;
-        }
-
-        const baseUrlParsed = new URL(baseUrl);
-        const isLocalBaseUrl = baseUrlParsed.hostname === '127.0.0.1' || baseUrlParsed.hostname === 'localhost';
-
-        if (process.env.MCP_EMBEDDING_VLLM_AUTO_START === 'false') {
-            logger.info('vLLM-metal auto-start disabled by MCP_EMBEDDING_VLLM_AUTO_START');
-            return;
-        }
-
-        if (existingBaseUrl && !isLocalBaseUrl) {
-            logger.info(`vLLM-metal auto-start skipped (MCP_EMBEDDING_BASE_URL is non-local: ${existingBaseUrl})`);
-            return;
-        }
-
-        const modelPath = process.env.MCP_EMBEDDING_VLLM_MODEL_PATH
-            || join(homedir(), '.saga', 'models', modelName);
-
-        if (!existsSync(modelPath)) {
-            logger.warn(`vLLM-metal model path not found: ${modelPath}`);
-            logger.warn('Set MCP_EMBEDDING_VLLM_MODEL_PATH to your HF model directory or download it before starting Saga.');
-            return;
-        }
-
-        const port = process.env.MCP_EMBEDDING_VLLM_PORT
-            ? Number(process.env.MCP_EMBEDDING_VLLM_PORT)
-            : Number(baseUrlParsed.port || '8000');
-
-        const args = [
-            'serve',
-            modelPath,
-            '--trust-remote-code',
-            '--runner', 'pooling',
-            '--model-impl', 'vllm',
-            '--override-pooler-config', '{"pooling_type":"MEAN"}',
-            '--dtype', 'float32',
-            '--port', String(port),
-            '--served-model-name', modelName
-        ];
-
-        logger.info(`Starting vLLM-metal server on ${baseUrlParsed.hostname}:${port} using model ${modelName}`);
-        const child = spawn('vllm', args, {
-            detached: true,
-            stdio: 'ignore',
-        });
-        child.unref();
-    } catch (error) {
-        logger.error('vLLM-metal auto-configuration failed', error);
-    }
-}
-
-initializeVllmMetalAutoConfig();
-
-// ============================================
-// END VLLM-METAL AUTO-CONFIGURATION
 // ============================================
 
 // Initialize server
