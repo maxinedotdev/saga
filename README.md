@@ -47,9 +47,7 @@ If you prefer not to use `npm link`, you can reference the server directly in yo
 }
 ```
 
-### Via npm (When Published)
-
-> **Note:** This method requires the package to be published to npm first.
+### Via npm
 
 ```bash
 npm install -g @maxinedotdev/saga
