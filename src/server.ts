@@ -160,32 +160,20 @@ async function initializeVllmMetalAutoConfig() {
             : Number(baseUrlParsed.port || '8000');
 
         const startServer = (resolvedModelPath: string) => {
-            const command = process.env.MCP_EMBEDDING_VLLM_COMMAND || 'vllm-metal';
-            const logLevel = process.env.MCP_EMBEDDING_VLLM_LOG_LEVEL || 'info';
-            const useMetal = command.includes('vllm-metal')
-                || process.env.MCP_EMBEDDING_VLLM_USE_METAL === 'true';
-            const args = useMetal
-                ? [
-                    '--model', resolvedModelPath,
-                    '--host', baseUrlParsed.hostname,
-                    '--port', String(port),
-                    '--log-level', logLevel,
-                ]
-                : [
-                    'serve',
-                    resolvedModelPath,
-                    '--trust-remote-code',
-                    '--runner', 'pooling',
-                    '--model-impl', 'vllm',
-                    '--override-pooler-config', '{"pooling_type":"MEAN"}',
-                    '--dtype', 'float32',
-                    '--host', baseUrlParsed.hostname,
-                    '--port', String(port),
-                    '--served-model-name', modelName
-                ];
+            const args = [
+                'serve',
+                resolvedModelPath,
+                '--trust-remote-code',
+                '--runner', 'pooling',
+                '--model-impl', 'vllm',
+                '--override-pooler-config', '{"pooling_type":"MEAN"}',
+                '--dtype', 'float32',
+                '--port', String(port),
+                '--served-model-name', modelName
+            ];
 
-            logger.info(`Starting vLLM server (${command}) on ${baseUrlParsed.hostname}:${port} using model ${modelName}`);
-            const child = spawn(command, args, {
+            logger.info(`Starting vLLM-metal server on ${baseUrlParsed.hostname}:${port} using model ${modelName}`);
+            const child = spawn('vllm', args, {
                 detached: true,
                 stdio: 'ignore',
             });
