@@ -1,6 +1,6 @@
 {
   "name": "@maxinedotdev/saga",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A TypeScript MCP server for document management and semantic search with embeddings, featuring web crawling, multiple AI providers, and intelligent chunking",
   "main": "dist/server.js",
   "type": "module",
