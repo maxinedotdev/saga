@@ -172,7 +172,7 @@ async function generateQueryEmbedding(manager: DocumentManager, query: string): 
 // Add document tool
 server.addTool({
     name: "add_document",
-    description: "Add a new document to the knowledge base. If this is test data, include metadata like { source: \"test\", test: true, tags: [\"test\"] } to make cleanup easy.",
+    description: "Add a new document to the knowledge base. For test data, include metadata like { source: \"test\", test: true, tags: [\"test\"] } to make cleanup easy.",
     parameters: z.object({
         title: z.string().describe("The title of the document"),
         content: z.string().describe("The content of the document"),
@@ -237,7 +237,7 @@ logger.info('Tool registered: add_document');
 // Crawl documentation tool
 server.addTool({
     name: "crawl_documentation",
-    description: "Crawl public documentation starting from a seed URL and ingest it as documents. If this is a test crawl, include metadata like { source: \"test\", test: true, tags: [\"test\"] } on ingest results where possible so cleanup is easy.",
+    description: "Crawl public documentation starting from a seed URL and ingest it as documents. For test crawls, include metadata like { source: \"test\", test: true, tags: [\"test\"] } when possible so cleanup is easy.",
     parameters: z.object({
         seed_url: z.string().describe("The starting URL for the crawl"),
         max_pages: z.number().int().min(1).default(100).describe("Maximum number of pages to ingest"),
@@ -272,7 +272,7 @@ logger.info('Tool registered: crawl_documentation');
 // Search documents tool
 server.addTool({
     name: "search_documents",
-    description: "Search for chunks within a specific document using semantic similarity. Always tell the user if result is truncated because of length. for example if you recive a message like this in the response: 'Tool response was too long and was truncated'",
+    description: "Search for chunks within a specific document using semantic similarity. If results are truncated, say so.",
     parameters: z.object({
         document_id: z.string().describe("The ID of the document to search within"),
         query: z.string().describe("The search query"),
@@ -284,7 +284,7 @@ server.addTool({
             await getDocumentOrThrow(
                 manager,
                 args.document_id,
-                `Document with ID '${args.document_id}' Not found. Use 'list_documents' to get all id of documents.`
+                `Document with ID '${args.document_id}' not found. Use 'list_documents' to get available document IDs.`
             );
             const limit = getMaxSearchResults(args.limit);
 
@@ -326,7 +326,7 @@ logger.info('Tool registered: search_documents');
 // Get document tool
 server.addTool({
     name: "get_document",
-    description: "Retrieve a specific document by ID. Always tell the user if result is truncated because of length. for example if you recive a message like this in the response: 'Tool response was too long and was truncated'",
+    description: "Retrieve a specific document by ID. If results are truncated, say so.",
     parameters: z.object({
         id: z.string().describe("The document ID"),
     }), execute: async (args) => {
@@ -349,7 +349,7 @@ logger.info('Tool registered: get_document');
 // List documents tool
 server.addTool({
     name: "list_documents",
-    description: "List documents in the knowledge base with pagination and optional metadata/preview",
+    description: "List documents in the knowledge base with pagination and optional metadata/preview.",
     parameters: z.object({
         offset: z.number().int().min(0).default(0).describe("Number of documents to skip for pagination"),
         limit: z.number().int().min(1).max(200).default(50).describe("Maximum number of documents to return (default 50, max 200)"),
@@ -405,7 +405,7 @@ server.addTool({
 // Process uploads folder tool
 server.addTool({
     name: "process_uploads",
-    description: "Process all .txt and .md files in the uploads folder and create embeddings for them. If this is test data, include metadata like { source: \"test\", test: true, tags: [\"test\"] } so cleanup is easy.",
+    description: "Process all .txt and .md files in the uploads folder and create embeddings for them. For test data, include metadata like { source: \"test\", test: true, tags: [\"test\"] } so cleanup is easy.",
     parameters: z.object({}), execute: async () => {
         try {
             const manager = await initializeDocumentManager();
@@ -429,7 +429,7 @@ server.addTool({
 // List uploads files tool
 server.addTool({
     name: "list_uploads_files",
-    description: "List all files in the uploads folder with their details",
+    description: "List all files in the uploads folder with their details.",
     parameters: z.object({}), execute: async () => {
         try {
             const manager = await initializeDocumentManager();
@@ -457,7 +457,7 @@ server.addTool({
 // Delete document tool
 server.addTool({
     name: "delete_document",
-    description: "Delete a document from the collection",
+    description: "Delete a document from the collection.",
     parameters: z.object({
         id: z.string().describe("Document ID to delete")
     }),
@@ -489,7 +489,7 @@ server.addTool({
 // Delete crawl session tool
 server.addTool({
     name: "delete_crawl_session",
-    description: "Delete all documents associated with a crawl session ID",
+    description: "Delete all documents associated with a crawl session ID.",
     parameters: z.object({
         crawl_id: z.string().describe("Crawl session ID to delete"),
     }),
@@ -519,7 +519,7 @@ server.addTool({
 // MCP tool: get_context_window
 server.addTool({
     name: "get_context_window",
-    description: "Returns a window of chunks around a central chunk given document_id, chunk_index, before, after. Always tell the user if result is truncated because of length. for example if you recive a message like this in the response: 'Tool response was too long and was truncated'",
+    description: "Return a window of chunks around a central chunk (document_id, chunk_index, before, after). If results are truncated, say so.",
     parameters: z.object({
         document_id: z.string().describe("The document ID"),
         chunk_index: z.number().describe("The index of the central chunk"),
@@ -610,7 +610,7 @@ if (aiProviderSelection.enabled) {
 // Query documents tool
 server.addTool({
     name: "query",
-    description: "A search tool that returns only the most relevant document IDs and summaries. Perform query-first discovery to find the most relevant documents before retrieving their full content.",
+    description: "Return the most relevant document IDs and summaries. Use this for query-first discovery before fetching full content.",
     parameters: z.object({
         query: z.string().describe("The search query text"),
         limit: z.number().int().min(1).max(200).default(10).describe("Maximum number of results to return (default 10, max 200)"),
@@ -647,7 +647,7 @@ server.addTool({
 // Search code blocks tool
 server.addTool({
     name: "search_code_blocks",
-    description: "Search for code blocks across all documents using semantic similarity. Returns all language variants by default. Use the optional language filter to restrict results to a specific programming language (e.g., 'javascript', 'python', 'typescript'). Always tell the user if result is truncated because of length.",
+    description: "Search for code blocks across all documents using semantic similarity. Returns all language variants by default. Use the optional language filter to restrict results to a specific programming language. If results are truncated, say so.",
     parameters: z.object({
         query: z.string().describe("The search query for finding relevant code blocks"),
         limit: z.number().optional().describe("Maximum number of code block results to return (defaults to MCP_MAX_SEARCH_RESULTS env var or 10)"),
@@ -696,7 +696,7 @@ server.addTool({
 // Get code blocks for document tool
 server.addTool({
     name: "get_code_blocks",
-    description: "Get all code blocks for a specific document. Returns all language variants available for each code block. Always tell the user if result is truncated because of length.",
+    description: "Get all code blocks for a specific document. Returns all language variants available for each code block. If results are truncated, say so.",
     parameters: z.object({
         document_id: z.string().describe("The ID of the document to get code blocks for"),
     }),
