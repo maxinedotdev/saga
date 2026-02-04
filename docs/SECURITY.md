@@ -42,9 +42,8 @@ We take security seriously and appreciate responsible disclosure of security vul
 
 ### How to Report
 
-1. **Email**: Send details to [maxine@mcp.dev] (replace with your actual email)
-2. **GitHub Issues**: For non-sensitive issues, you can use our [issue tracker](https://github.com/maxinedotdev/saga/issues)
-3. **Security Advisories**: For sensitive vulnerabilities, use GitHub's [private vulnerability reporting](https://github.com/maxinedotdev/saga/security/advisories)
+1. **GitHub Issues**: For non-sensitive issues, you can use our [issue tracker](https://github.com/maxinedotdev/saga/issues)
+2. **Security Advisories**: For sensitive vulnerabilities, use GitHub's [private vulnerability reporting](https://github.com/maxinedotdev/saga/security/advisories)
 
 ### What to Include
 
