@@ -1,3 +1,6 @@
+![GitHub Release](https://img.shields.io/github/v/release/cvntress/saga)
+![npm version](https://img.shields.io/npm/v/saga-mcp)
+
 # Saga MCP Server
 
 [![npm publish](https://github.com/maxinedotdev/saga/actions/workflows/npm-publish.yml/badge.svg)](https://github.com/maxinedotdev/saga/actions/workflows/npm-publish.yml)
@@ -47,9 +50,7 @@ If you prefer not to use `npm link`, you can reference the server directly in yo
 }
 ```
 
-### Via npm (When Published)
-
-> **Note:** This method requires the package to be published to npm first.
+### Via npm
 
 ```bash
 npm install -g @maxinedotdev/saga

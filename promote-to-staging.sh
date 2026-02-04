@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_WORKTREE="/Users/cvntress/Documents/git/mcp-documentation-server-staging"
+# Default to a sibling directory named saga-staging
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_WORKTREE="${SCRIPT_DIR%/*}/saga-staging"
 STAGING_WORKTREE="${STAGING_WORKTREE:-$DEFAULT_WORKTREE}"
 PUSH=false
 
