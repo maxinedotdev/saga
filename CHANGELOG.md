@@ -14,12 +14,11 @@
   - **Configuration changes**:
     - `MCP_EMBEDDING_PROVIDER` now only accepts `openai` (removed `transformers` option)
     - `MCP_EMBEDDING_BASE_URL` is now required (must point to OpenAI-compatible API)
-    - `MCP_EMBEDDING_MODEL` defaults to `text-embedding-multilingual-e5-large-instruct`
+    - `MCP_EMBEDDING_MODEL` defaults to `text-embedding-llama-nemotron-embed-1b-v2@q4_k_s`
   - **Migration guide**: See `docs/REMOVE-LEGACY-COMPONENTS.md` for detailed migration instructions
 
-* **Update default embedding model for OpenAI-compatible provider**: Changed from `text-embedding-nomic-embed-text-v1.5` to `text-embedding-multilingual-e5-large-instruct`
-  - The new E5 model provides better multilingual support (100+ languages), superior performance on MTEB/BEIR benchmarks, and instruction-tuned capabilities
-  - **Migration required**: Users with existing LM Studio setups must download the new model (`text-embedding-multilingual-e5-large-instruct`)
+* **Update default embedding model for OpenAI-compatible provider**: Changed from `text-embedding-nomic-embed-text-v1.5` to `text-embedding-llama-nemotron-embed-1b-v2@q4_k_s`
+  - **Migration required**: Users with existing LM Studio setups must download the new model (`text-embedding-llama-nemotron-embed-1b-v2@q4_k_s`)
   - Users who have explicitly set `MCP_EMBEDDING_MODEL` are unaffected
   - See migration guide below for LM Studio download instructions
 
@@ -52,34 +51,11 @@ MCP_AI_PROVIDERS='[
 ]'
 ```
 
-### Breaking Changes
-
-* **Remove legacy components: Transformers.js, SearchEngine, and searchDocuments()**: Removed local transformer-based embedding support and legacy search components
-  - **Removed components**:
-    - `TransformersEmbeddingProvider` class (local embedding provider using @xenova/transformers)
-    - `SimpleEmbeddingProvider` class (fallback hash-based embedding provider)
-    - `SearchEngine` class (thin wrapper around DocumentManager)
-    - `searchDocuments()` method (single-document vector search in DocumentManager)
-    - `@xenova/transformers` dependency
-  - **Migration required**: Users must configure an OpenAI-compatible embedding provider (LM Studio, synthetic.new, or any OpenAI-compatible API)
-  - **Performance improvements**: Expected 100-500MB RAM reduction and 1-5 minute cold start improvement
-  - **Configuration changes**:
-    - `MCP_EMBEDDING_PROVIDER` now only accepts `openai` (removed `transformers` option)
-    - `MCP_EMBEDDING_BASE_URL` is now required (must point to OpenAI-compatible API)
-    - `MCP_EMBEDDING_MODEL` defaults to `text-embedding-multilingual-e5-large-instruct`
-  - **Migration guide**: See `docs/REMOVE-LEGACY-COMPONENTS.md` for detailed migration instructions
-
-* **Update default embedding model for OpenAI-compatible provider**: Changed from `text-embedding-nomic-embed-text-v1.5` to `text-embedding-multilingual-e5-large-instruct`
-  - The new E5 model provides better multilingual support (100+ languages), superior performance on MTEB/BEIR benchmarks, and instruction-tuned capabilities
-  - **Migration required**: Users with existing LM Studio setups must download the new model (`text-embedding-multilingual-e5-large-instruct`)
-  - Users who have explicitly set `MCP_EMBEDDING_MODEL` are unaffected
-  - See migration guide below for LM Studio download instructions
-
 ### Migration Instructions
 
 **For LM Studio users:**
 1. Open LM Studio and go to the "Discover" tab
-2. Search for `text-embedding-multilingual-e5-large-instruct`
+2. Search for `text-embedding-llama-nemotron-embed-1b-v2@q4_k_s`
 3. Download the model (GGUF format recommended)
 4. Load the model in LM Studio's embedding server
 5. Restart your MCP client

@@ -466,7 +466,7 @@ If the vector database fails to initialize, the server will continue running wit
 **Symptom**: LM Studio shows an error when Saga tries to use embeddings:
 
 ```
-Invalid model identifier 'llama-nemotron-embed-1b-v2'. No matching loaded model found, and just-in-time (JIT) model loading is disabled. Ensure you have this model loaded first. JIT loading can be enabled in LM Studio Server Settings.
+Invalid model identifier 'text-embedding-llama-nemotron-embed-1b-v2@q4_k_s'. No matching loaded model found, and just-in-time (JIT) model loading is disabled. Ensure you have this model loaded first. JIT loading can be enabled in LM Studio Server Settings.
 ```
 
 **Cause**: LM Studio has Just-In-Time (JIT) model loading disabled, which requires models to be pre-loaded before use. Saga requests the embedding model by name, but LM Studio cannot automatically load it because JIT loading is turned off.
@@ -497,11 +497,11 @@ If you prefer to keep JIT loading disabled, manually load the model first:
 
 1. **Open LM Studio**
 2. **Download the embedding model**:
-   - Search for "llama-nemotron-embed-1b-v2" in the model marketplace
+   - Search for "text-embedding-llama-nemotron-embed-1b-v2@q4_k_s" in the model marketplace
    - Download and install the model
 3. **Load the model**:
    - Go to the "Local Models" tab
-   - Find "llama-nemotron-embed-1b-v2"
+   - Find "text-embedding-llama-nemotron-embed-1b-v2@q4_k_s"
    - Click "Load" or "Start" to load the model into memory
 4. **Keep the model loaded**:
    - Ensure the model remains loaded while using Saga
@@ -532,7 +532,7 @@ For the best experience with Saga, configure LM Studio with these settings:
 
 1. **Check if the model is installed**:
    - In LM Studio, go to "Local Models"
-   - Search for "llama-nemotron-embed-1b-v2"
+   - Search for "text-embedding-llama-nemotron-embed-1b-v2@q4_k_s"
    - If not found, download it from the marketplace
 
 2. **Verify LM Studio server is running**:

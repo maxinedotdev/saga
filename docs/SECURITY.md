@@ -2,18 +2,15 @@
 
 ## Supported Versions
 
-We actively maintain and provide security updates for the following versions of the MCP Documentation Server:
+We actively maintain and provide security updates for the following versions of Saga:
 
-| Version | Supported          | Notes                                    |
-| ------- | ------------------ | ---------------------------------------- |
-| 1.4.x   | :white_check_mark: | Current stable release                   |
-| 1.3.x   | :white_check_mark: | Previous stable, security updates only   |
-| 1.2.x   | :x:                | End of life, please upgrade              |
-| 1.1.x   | :x:                | End of life, please upgrade              |
-| 1.0.x   | :x:                | End of life, please upgrade              |
-| < 1.0   | :x:                | Beta versions, not supported             |
+| Version | Supported          | Notes                                  |
+| ------- | ------------------ | -------------------------------------- |
+| 1.0.x   | :white_check_mark: | Current stable release                 |
+| 0.2.x   | :white_check_mark: | Previous stable, security updates only |
+| < 0.2   | :x:                | End of life, please upgrade            |
 
-**Recommendation**: Always use the latest stable version (1.4.x) for the best security and feature support.
+**Recommendation**: Always use the latest stable version (1.0.x) for the best security and feature support.
 
 ## Security Considerations
 
@@ -117,4 +114,4 @@ For security-related questions or concerns:
 
 ---
 
-*Last updated: June 16, 2025*
+*Last updated: February 4, 2026*

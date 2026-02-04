@@ -474,7 +474,6 @@ Potential areas for contribution:
 ### Key Components
 
 - **FastMCP**: Framework for building MCP servers
-- **@xenova/transformers**: Local AI embedding models
 - **pdf-ts**: PDF text extraction
 - **Zod**: Runtime type validation
 
