@@ -35,15 +35,6 @@ jobs:
         run: |
           node -e 'const fs=require("fs"); const pkg=require("./package.json"); fs.appendFileSync(process.env.GITHUB_OUTPUT, "name=" + pkg.name + "\nversion=" + pkg.version + "\n");'
 
-      - name: Check if package.json changed in this push
-        id: version_changed
-        run: |
-          if git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" | grep -q '^package.json$'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Check if version already published
         id: published
         run: |
@@ -54,5 +45,5 @@ jobs:
           fi
 
       - name: Publish
-        if: steps.version_changed.outputs.changed == 'true' && steps.published.outputs.published != 'true'
+        if: steps.published.outputs.published != 'true'
         run: npm publish --provenance --access public
