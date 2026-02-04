@@ -1,5 +1,4 @@
-const fs = require("fs");
-const pkg = require("../../package.json");
+import pkg from "../../package.json" with { type: "json" };
 
 const notes = `# ${pkg.name} v${pkg.version}
 
@@ -20,4 +19,4 @@ ${pkg.keywords.map(k => "- " + k).join("\n")}
 - [Issues](${pkg.bugs.url})
 `;
 
-fs.writeFileSync("release_notes.md", notes);
+console.log(notes);
