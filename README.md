@@ -1,5 +1,5 @@
-![GitHub Release](https://img.shields.io/github/v/release/cvntress/saga)
-![npm version](https://img.shields.io/npm/v/saga-mcp)
+![GitHub Release](https://img.shields.io/github/v/release/maxinedotdev/saga)
+![npm version](https://img.shields.io/npm/v/@maxinedotdev/saga)
 
 # Saga MCP Server
 

@@ -1,28 +1,22 @@
-name: CI
+name: Staging Branch CI
 
 on:
   push:
     branches:
-      - main
-  pull_request:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+      - staging
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
 
-      - run: npm ci
-      - run: npm run build
-      - name: Run unit tests (no external AI)
+      - name: Run tests
         env:
           MCP_USE_MOCK_EMBEDDINGS: 'true'
           MCP_FORCE_STUB_FETCH: 'true'
