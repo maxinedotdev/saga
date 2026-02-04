@@ -41,9 +41,18 @@ jobs:
         run: |
           if npm view "${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}" version >/dev/null 2>&1; then
             echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "Version ${{ steps.pkg.outputs.version }} is already published to npm"
           else
             echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "Version ${{ steps.pkg.outputs.version }} is not yet published"
           fi
+
+      - name: Skip - Version already published
+        if: steps.published.outputs.published == 'true'
+        run: |
+          echo "::notice::Version ${{ steps.pkg.outputs.version }} is already published to npm."
+          echo "::notice::Skipping npm publish, git tag, and GitHub release creation."
+          echo "Workflow completed successfully - no action needed."
 
       - name: Publish to npm
         if: steps.published.outputs.published != 'true'
