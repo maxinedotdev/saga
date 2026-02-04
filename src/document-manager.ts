@@ -107,7 +107,7 @@ export class DocumentManager {
     }
 
     /**
-     * Initialize vector database with automatic migration
+     * Initialize vector database
      */
     private async initializeVectorDatabase(): Promise<void> {
         if (!this.vectorDatabase) {

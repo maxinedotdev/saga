@@ -41,8 +41,6 @@
     "test:coverage": "vitest run --coverage",
     "prepare": "npm run build",
     "db:init": "tsx scripts/init-db-v1.ts",
-    "db:migrate": "tsx scripts/migrate-to-v1.ts",
-    "db:status": "tsx scripts/db-status.ts",
     "db:drop": "tsx scripts/drop-db.ts",
     "db:benchmark": "tsx scripts/benchmark-db.ts"
   },
