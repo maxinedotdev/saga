@@ -16,6 +16,17 @@
   "bugs": {
     "url": "https://github.com/maxinedotdev/saga/issues"
   },
+  "exports": {
+    ".": {
+      "import": "./dist/server.js",
+      "default": "./dist/server.js"
+    },
+    "./embedding-cli": {
+      "import": "./dist/embedding-cli.js",
+      "default": "./dist/embedding-cli.js"
+    },
+    "./package.json": "./package.json"
+  },
   "scripts": {
     "build": "tsc && shx chmod +x dist/*.js",
     "start": "tsx src/server.ts",
