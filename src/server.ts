@@ -9,6 +9,7 @@ import { resolveAiProviderSelection, searchDocumentWithAi } from './ai-search-pr
 import { crawlDocumentation } from './documentation-crawler.js';
 import { extractHtmlContent, looksLikeHtml } from './html-extraction.js';
 import { getLogger } from './utils.js';
+import type { Document } from './types.js';
 
 const logger = getLogger('SagaServer');
 const getTimestamp = () => new Date().toISOString();
@@ -169,19 +170,96 @@ async function generateQueryEmbedding(manager: DocumentManager, query: string): 
     return embeddingProvider.generateEmbedding(query);
 }
 
+function buildContextWindow(document: Document, chunkIndex: number, before: number, after: number) {
+    if (!document.chunks || !Array.isArray(document.chunks)) {
+        throw new Error('Document or chunk not found');
+    }
+    const total = document.chunks.length;
+    const start = Math.max(0, chunkIndex - before);
+    const end = Math.min(total, chunkIndex + after + 1);
+    const windowChunks = document.chunks.slice(start, end).map(chunk => ({
+        chunk_index: chunk.chunk_index,
+        content: chunk.content,
+    }));
+    return {
+        window: windowChunks,
+        center: chunkIndex,
+        total_chunks: total,
+    };
+}
+
+async function searchDocumentChunks(
+    manager: DocumentManager,
+    documentId: string,
+    query: string,
+    limit: number
+) {
+    await getDocumentOrThrow(
+        manager,
+        documentId,
+        `Document with ID '${documentId}' not found. Use 'list_documents' to get available document IDs.`
+    );
+    const vectorDatabase = await getVectorDatabase(manager);
+    const queryEmbedding = await generateQueryEmbedding(manager, query);
+    const filter = `document_id = '${documentId}'`;
+    const results = await vectorDatabase.search(queryEmbedding, limit, filter);
+
+    return {
+        hint_for_llm: "After identifying the relevant chunks, use get_document with chunk_window to retrieve additional context around each chunk of interest.",
+        results: results.map((result: any) => ({
+            document_id: result.chunk.document_id,
+            chunk_index: result.chunk.chunk_index,
+            score: result.score,
+            content: result.chunk.content,
+        })),
+    };
+}
+
+const addDocumentParams = z.object({
+    title: z.string().optional().describe("The title of the document"),
+    content: z.string().optional().describe("The content of the document"),
+    metadata: z.object({}).passthrough().optional().describe("Optional metadata for the document"),
+    source: z.enum(["uploads"]).optional().describe("Set to 'uploads' to read content from an uploads file"),
+    path: z.string().optional().describe("Path to a file in the uploads directory (used when source is 'uploads')"),
+}).superRefine((value, ctx) => {
+    if (value.source === 'uploads') {
+        if (!value.path) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "path is required when source is 'uploads'",
+                path: ['path'],
+            });
+        }
+    } else if (!value.title || !value.content) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "title and content are required unless source is 'uploads'",
+            path: ['title'],
+        });
+    }
+});
+
 // Add document tool
 server.addTool({
     name: "add_document",
     description: "Add a new document to the knowledge base. For test data, include metadata like { source: \"test\", test: true, tags: [\"test\"] } to make cleanup easy.",
-    parameters: z.object({
-        title: z.string().describe("The title of the document"),
-        content: z.string().describe("The content of the document"),
-        metadata: z.object({}).passthrough().optional().describe("Optional metadata for the document"),
-    }), execute: async (args) => {
+    parameters: addDocumentParams,
+    execute: async (args) => {
         try {
             const manager = await initializeDocumentManager();
             const baseMetadata = args.metadata || {};
             const metadata = { ...baseMetadata } as Record<string, any>;
+
+            if (args.source === 'uploads') {
+                if (args.title) {
+                    metadata.title = args.title;
+                }
+                const document = await manager.processUploadFile(args.path as string, metadata);
+                if (!document) {
+                    throw new Error('Failed to add document from uploads - document is null');
+                }
+                return `Document added successfully with ID: ${document.id}`;
+            }
             const normalizedContentType = normalizeContentType(
                 (typeof metadata.contentType === 'string' ? metadata.contentType : undefined)
                 || (typeof metadata.content_type === 'string' ? metadata.content_type : undefined)
@@ -192,8 +270,8 @@ server.addTool({
                 || normalizedContentType === 'application/xhtml+xml'
                 || looksLikeHtml(args.content);
 
-            let title = args.title;
-            let content = args.content;
+            let title = args.title as string;
+            let content = args.content as string;
             let codeBlocks: ReturnType<typeof extractHtmlContent>['codeBlocks'] = [];
 
             if (isHtml) {
@@ -280,41 +358,8 @@ server.addTool({
     }), execute: async (args) => {
         try {
             const manager = await initializeDocumentManager();
-            // Controllo se il documento esiste prima di cercare
-            await getDocumentOrThrow(
-                manager,
-                args.document_id,
-                `Document with ID '${args.document_id}' not found. Use 'list_documents' to get available document IDs.`
-            );
             const limit = getMaxSearchResults(args.limit);
-
-            // Search within a specific document using vector database
-            const vectorDatabase = await getVectorDatabase(manager);
-
-            // Generate query embedding using documentManager's embedding provider
-            const queryEmbedding = await generateQueryEmbedding(manager, args.query);
-            
-            // Search with document filter
-            const filter = `document_id = '${args.document_id}'`;
-            const results = await vectorDatabase.search(queryEmbedding, limit, filter);
-
-            if (results.length === 0) {
-                return "No chunks found matching your query in the specified document.";
-            }
-
-            const searchResults = results.map((result: any) => ({
-                // chunk_id: result.chunk.id,
-                document_id: result.chunk.document_id,
-                chunk_index: result.chunk.chunk_index,
-                score: result.score,
-                content: result.chunk.content,
-                // start_position: result.chunk.start_position,
-                // end_position: result.chunk.end_position,
-            }));
-            const res = {
-                hint_for_llm: "After identifying the relevant chunks, use the get_context_window tool to retrieve additional context around each chunk of interest. You can call get_context_window multiple times until you have gathered enough context to answer the question.",
-                results: searchResults,
-            }
+            const res = await searchDocumentChunks(manager, args.document_id, args.query, limit);
             return JSON.stringify(res, null, 2);
         } catch (error) {
             throw new Error(`Search failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -329,16 +374,39 @@ server.addTool({
     description: "Retrieve a specific document by ID. If results are truncated, say so.",
     parameters: z.object({
         id: z.string().describe("The document ID"),
+        chunk_window: z.object({
+            chunk_index: z.number().describe("The index of the central chunk"),
+            before: z.number().default(1).describe("Number of previous chunks to include"),
+            after: z.number().default(1).describe("Number of next chunks to include"),
+        }).optional().describe("Optional context window around a chunk"),
     }), execute: async (args) => {
         try {
             const manager = await initializeDocumentManager();
-            const document = await manager.getOnlyContentDocument(args.id);
+            if (args.chunk_window) {
+                const document = await manager.getDocument(args.id);
+                if (!document) {
+                    throw new Error(`Document with ID '${args.id}' not found. Use 'list_documents' to get available document IDs.`);
+                }
+                const window = buildContextWindow(
+                    document,
+                    args.chunk_window.chunk_index,
+                    args.chunk_window.before ?? 1,
+                    args.chunk_window.after ?? 1
+                );
+                return JSON.stringify({
+                    document_id: document.id,
+                    title: document.title,
+                    ...window,
+                }, null, 2);
+            }
 
-            if (!document) {
+            const content = await manager.getOnlyContentDocument(args.id);
+
+            if (!content) {
                 throw new Error(`Document with ID '${args.id}' not found. Use 'list_documents' to get available document IDs.`);
             }
 
-            return JSON.stringify(document, null, 2);
+            return JSON.stringify(content, null, 2);
         } catch (error) {
             throw new Error(`Failed to retrieve document: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -529,30 +597,8 @@ server.addTool({
     async execute({ document_id, chunk_index, before, after }) {
         const manager = await initializeDocumentManager();
         const document = await getDocumentOrThrow(manager, document_id, 'Document or chunk not found');
-        if (!document.chunks || !Array.isArray(document.chunks)) {
-            throw new Error("Document or chunk not found");
-        }
-        const total = document.chunks.length;
-        let windowChunks;
-        let range;
-        
-        const start = Math.max(0, chunk_index - before);
-        const end = Math.min(total, chunk_index + after + 1);
-        windowChunks = document.chunks.slice(start, end).map(chunk => ({
-            chunk_index: chunk.chunk_index,
-            content: chunk.content,
-            // start_position: chunk.start_position,
-            // end_position: chunk.end_position,
-            // type: chunk.metadata?.type || null
-        }));
-        range = [start, end - 1];
-        
-        return JSON.stringify({
-            window: windowChunks,
-            center: chunk_index,
-            // range,
-            total_chunks: total
-        }, null, 2);
+        const window = buildContextWindow(document, chunk_index, before, after);
+        return JSON.stringify(window, null, 2);
     }
 });
 
@@ -610,12 +656,14 @@ if (aiProviderSelection.enabled) {
 // Query documents tool
 server.addTool({
     name: "query",
-    description: "Return the most relevant document IDs and summaries. Use this for query-first discovery before fetching full content.",
+    description: "Return the most relevant document IDs and summaries. Use this for query-first discovery before fetching full content. Set scope to 'document' with document_id to search chunks within a single document.",
     parameters: z.object({
         query: z.string().describe("The search query text"),
         limit: z.number().int().min(1).max(200).default(10).describe("Maximum number of results to return (default 10, max 200)"),
         offset: z.number().int().min(0).default(0).describe("Number of results to skip for pagination"),
         include_metadata: z.boolean().default(true).describe("Include full metadata objects in results (default true)"),
+        scope: z.enum(["global", "document"]).optional().describe("Search scope (default: global unless document_id is provided)"),
+        document_id: z.string().optional().describe("Limit search to a specific document (requires scope: 'document')"),
         filters: z.object({
             tags: z.array(z.string()).optional().describe("Filter by document tags"),
             source: z.string().optional().describe("Filter by document source (e.g., 'upload', 'crawl', 'api')"),
@@ -628,8 +676,16 @@ server.addTool({
     execute: async (args) => {
         try {
             const manager = await initializeDocumentManager();
-            
-            // Call the query method with appropriate parameters
+            const scope = args.scope ?? (args.document_id ? 'document' : 'global');
+            if (scope === 'document') {
+                if (!args.document_id) {
+                    throw new Error("document_id is required when scope is 'document'");
+                }
+                const limit = getMaxSearchResults(args.limit);
+                const res = await searchDocumentChunks(manager, args.document_id, args.query, limit);
+                return JSON.stringify(res, null, 2);
+            }
+
             const result = await manager.query(args.query, {
                 limit: args.limit,
                 offset: args.offset,

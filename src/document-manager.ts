@@ -783,6 +783,54 @@ export class DocumentManager {
         }
     }
 
+    async processUploadFile(filePath: string, metadata: Record<string, unknown> = {}): Promise<Document | null> {
+        const supportedExtensions = ['.txt', '.md', '.pdf'];
+        const uploadsPath = this.getUploadsPath();
+        const resolvedPath = path.isAbsolute(filePath)
+            ? filePath
+            : path.resolve(uploadsPath, filePath);
+
+        if (!resolvedPath.startsWith(uploadsPath)) {
+            throw new Error('Upload path must be within the uploads directory');
+        }
+
+        const fileName = path.basename(resolvedPath);
+        const fileExtension = path.extname(fileName).toLowerCase();
+
+        if (!supportedExtensions.includes(fileExtension)) {
+            throw new Error(`Unsupported upload file type: ${fileExtension}`);
+        }
+
+        let content: string;
+        if (fileExtension === '.pdf') {
+            content = await this.extractTextFromPdf(resolvedPath);
+        } else {
+            content = await this.readTextFile(resolvedPath);
+        }
+
+        if (!content.trim()) {
+            throw new Error(`File ${fileName} is empty or contains no extractable text`);
+        }
+
+        const title = typeof metadata.title === 'string'
+            ? metadata.title
+            : path.basename(fileName, fileExtension);
+
+        const existingDoc = await this.findDocumentByTitle(title);
+        if (existingDoc) {
+            await this.deleteDocument(existingDoc.id);
+        }
+
+        const baseMetadata: Record<string, unknown> = {
+            source: 'upload',
+            originalFilename: fileName,
+            fileExtension,
+            processedAt: new Date().toISOString(),
+        };
+
+        return this.addDocument(title, content, { ...baseMetadata, ...metadata });
+    }
+
     private async findDocumentByTitle(title: string): Promise<Document | null> {
         const documents = await this.getAllDocuments();
         return documents.find(doc => doc.title === title) || null;
