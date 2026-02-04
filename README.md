@@ -1,15 +1,20 @@
 # MCP Documentation Server
 
+[![npm publish](https://github.com/maxinedotdev/saga/actions/workflows/npm-publish.yml/badge.svg)](https://github.com/maxinedotdev/saga/actions/workflows/npm-publish.yml)
+
 A TypeScript-based [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for local-first document management and semantic search using embeddings. Features LanceDB vector storage, web crawling, and optional LLM integration.
 
 ## Installation
 
 ### Local Development
 
-Since the package is not yet published to npm, clone and link locally:
+You can install from npm or clone and link locally:
 
 ```bash
-# Clone and build
+# Install from npm
+npm install -g @maxinedotdev/saga
+
+# Or clone and build
 git clone https://github.com/maxinedotdev/saga.git
 cd saga
 npm install
