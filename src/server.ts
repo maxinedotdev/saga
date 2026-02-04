@@ -8,88 +8,39 @@ import { DocumentManager } from './document-manager.js';
 import { resolveAiProviderSelection, searchDocumentWithAi } from './ai-search-provider.js';
 import { crawlDocumentation } from './documentation-crawler.js';
 import { extractHtmlContent, looksLikeHtml } from './html-extraction.js';
+import { getLogger } from './utils.js';
 
-// ============================================
-// DIAGNOSTIC LOGGING: Server Lifecycle
-// ============================================
-
+const logger = getLogger('SagaServer');
 const getTimestamp = () => new Date().toISOString();
-const getMemoryUsage = () => {
-    const usage = process.memoryUsage();
-    return `heap=${(usage.heapUsed / 1024 / 1024).toFixed(2)}MB, total=${(usage.heapTotal / 1024 / 1024).toFixed(2)}MB, rss=${(usage.rss / 1024 / 1024).toFixed(2)}MB`;
-};
 
-// Log server startup
-console.error(`[SagaServer] ${getTimestamp()} Server startup initiated`);
-console.error(`[SagaServer] ${getTimestamp()} Process ID: ${process.pid}`);
-console.error(`[SagaServer] ${getTimestamp()} Node version: ${process.version}`);
-console.error(`[SagaServer] ${getTimestamp()} Platform: ${process.platform}`);
-console.error(`[SagaServer] ${getTimestamp()} Memory usage: ${getMemoryUsage()}`);
+logger.info(`${getTimestamp()} Server startup initiated`);
+logger.info(`Process ID: ${process.pid}`);
+logger.info(`Node version: ${process.version}`);
+logger.info(`Platform: ${process.platform}`);
 
-// Global uncaught exception handler
 process.on('uncaughtException', (error: Error) => {
-    console.error(`[SagaServer] ${getTimestamp()} UNCAUGHT EXCEPTION - Process will crash`);
-    console.error(`[SagaServer] ${getTimestamp()} Error name: ${error.name}`);
-    console.error(`[SagaServer] ${getTimestamp()} Error message: ${error.message}`);
-    console.error(`[SagaServer] ${getTimestamp()} Stack trace:\n${error.stack}`);
-    console.error(`[SagaServer] ${getTimestamp()} Memory usage: ${getMemoryUsage()}`);
-    console.error(`[SagaServer] ${getTimestamp()} Active handles: ${(process as any)._getActiveHandles?.()?.length || 'unknown'}`);
-    console.error(`[SagaServer] ${getTimestamp()} Active requests: ${(process as any)._getActiveRequests?.()?.length || 'unknown'}`);
+    logger.error('UNCAUGHT EXCEPTION - Process will crash');
+    logger.error(error);
 });
 
-// Global unhandled rejection handler
-process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
-    console.error(`[SagaServer] ${getTimestamp()} UNHANDLED REJECTION`);
-    console.error(`[SagaServer] ${getTimestamp()} Reason: ${reason instanceof Error ? reason.message : String(reason)}`);
-    if (reason instanceof Error) {
-        console.error(`[SagaServer] ${getTimestamp()} Stack trace:\n${reason.stack}`);
-    }
-    console.error(`[SagaServer] ${getTimestamp()} Memory usage: ${getMemoryUsage()}`);
+process.on('unhandledRejection', (reason: any) => {
+    logger.error('UNHANDLED REJECTION');
+    logger.error(reason instanceof Error ? reason : String(reason));
 });
-
-// Signal handlers for debugging restarts
-const handleSignal = (signal: string) => {
-    console.error(`[SagaServer] ${getTimestamp()} Signal received: ${signal}`);
-    console.error(`[SagaServer] ${getTimestamp()} Memory usage: ${getMemoryUsage()}`);
-    console.error(`[SagaServer] ${getTimestamp()} Active handles: ${(process as any)._getActiveHandles?.()?.length || 'unknown'}`);
-    console.error(`[SagaServer] ${getTimestamp()} Active requests: ${(process as any)._getActiveRequests?.()?.length || 'unknown'}`);
-};
 
 process.on('SIGTERM', () => {
-    handleSignal('SIGTERM');
-    console.error(`[SagaServer] ${getTimestamp()} SIGTERM: Graceful shutdown initiated`);
+    logger.info('SIGTERM: Graceful shutdown initiated');
 });
 
 process.on('SIGINT', () => {
-    handleSignal('SIGINT');
-    console.error(`[SagaServer] ${getTimestamp()} SIGINT: Graceful shutdown initiated`);
+    logger.info('SIGINT: Graceful shutdown initiated');
 });
-
-process.on('SIGUSR1', () => {
-    handleSignal('SIGUSR1');
-    console.error(`[SagaServer] ${getTimestamp()} SIGUSR1: Debug signal received (typically triggers debugger)`);
-});
-
-process.on('SIGUSR2', () => {
-    handleSignal('SIGUSR2');
-    console.error(`[SagaServer] ${getTimestamp()} SIGUSR2: Debug signal received (typically triggers debugger)`);
-});
-
-// Log process exit
-process.on('exit', (code: number) => {
-    console.error(`[SagaServer] ${getTimestamp()} Process exiting with code: ${code}`);
-    console.error(`[SagaServer] ${getTimestamp()} Memory usage: ${getMemoryUsage()}`);
-});
-
-// ============================================
-// END DIAGNOSTIC LOGGING
-// ============================================
 
 // ============================================
 // MLX AUTO-CONFIGURATION
 // ============================================
 async function initializeMlxAutoConfig() {
-    console.error('[MLX Auto-Config] Starting MLX auto-configuration...');
+    logger.info('MLX auto-configuration starting...');
     
     try {
         // Import MLX-related modules
@@ -102,43 +53,40 @@ async function initializeMlxAutoConfig() {
         
         // Only proceed if Apple Silicon is detected and MLX provider is configured
         if (!isAppleSilicon()) {
-            console.error('[MLX Auto-Config] Not running on Apple Silicon, skipping MLX setup');
+            logger.info('MLX auto-config skipped (not Apple Silicon)');
             return;
         }
         
         if (RERANKING_CONFIG.provider !== 'mlx') {
-            console.error(`[MLX Auto-Config] MLX provider not selected (current: ${RERANKING_CONFIG.provider}), skipping auto-setup`);
+            logger.info(`MLX auto-config skipped (provider: ${RERANKING_CONFIG.provider})`);
             return;
         }
         
-        console.error('[MLX Auto-Config] MLX provider configured, checking model availability...');
+        logger.info('MLX provider configured, checking model availability...');
         
         // Download model in background (don't block startup)
         const modelPath = getDefaultModelPath();
-        console.error(`[MLX Auto-Config] Model path: ${modelPath}`);
+        logger.info(`MLX model path: ${modelPath}`);
         
         // Start download in background
         downloadModel({ localPath: modelPath }, (progress) => {
             if (progress.stage === 'downloading') {
-                console.error(`[MLX Auto-Config] ${progress.message}`);
+                logger.info(progress.message);
             } else if (progress.stage === 'complete') {
-                console.error(`[MLX Auto-Config] ${progress.message}`);
+                logger.info(progress.message);
             }
         }).then((result) => {
             if (result.success) {
-                console.error(`[MLX Auto-Config] Model ${result.downloaded ? 'downloaded' : 'already exists'} at ${result.modelPath}`);
+                logger.info(`MLX model ${result.downloaded ? 'downloaded' : 'already exists'} at ${result.modelPath}`);
             } else {
-                console.error(`[MLX Auto-Config] Model setup failed: ${result.error}`);
-                console.error('[MLX Auto-Config] MLX reranker will not be available');
+                logger.error(`MLX model setup failed: ${result.error}`);
             }
         }).catch((error) => {
-            console.error(`[MLX Auto-Config] Error during model setup: ${error}`);
-            console.error('[MLX Auto-Config] MLX reranker will not be available');
+            logger.error(`MLX model setup failed: ${error}`);
         });
         
     } catch (error) {
-        console.error('[MLX Auto-Config] Error during auto-configuration:', error);
-        console.error('[MLX Auto-Config] Continuing without MLX support');
+        logger.error('MLX auto-configuration failed', error);
     }
 }
 
@@ -150,67 +98,43 @@ initializeMlxAutoConfig();
 // ============================================
 
 // Initialize server
-console.error(`[SagaServer] ${getTimestamp()} About to create FastMCP server...`);
+logger.info(`${getTimestamp()} About to create FastMCP server...`);
 
 const server = new FastMCP({
     name: "Documentation Server",
     version: "1.0.0",
 });
 
-console.error(`[Server] FastMCP server initialized`);
-console.error(`[SagaServer] ${getTimestamp()} FastMCP server created successfully`);
-
-// Global tool error handler wrapper
-function wrapToolHandler<T extends any[]>(
-    toolName: string,
-    handler: (...args: T) => Promise<string>
-): (...args: T) => Promise<string> {
-    return async (...args: T): Promise<string> => {
-        try {
-            console.error(`[Server] ${getTimestamp()} Tool '${toolName}' started`);
-            const result = await handler(...args);
-            console.error(`[Server] ${getTimestamp()} Tool '${toolName}' completed successfully`);
-            return result;
-        } catch (error) {
-            console.error(`[Server] ${getTimestamp()} Tool '${toolName}' failed with error:`, error);
-            console.error(`[Server] ${getTimestamp()} Error details:`, {
-                message: error instanceof Error ? error.message : String(error),
-                stack: error instanceof Error ? error.stack : undefined,
-                name: error instanceof Error ? error.name : undefined
-            });
-            // Return a proper error response instead of throwing
-            return `Error: ${error instanceof Error ? error.message : String(error)}`;
-        }
-    };
-}
+logger.info('FastMCP server initialized');
+logger.info(`${getTimestamp()} FastMCP server created successfully`);
 
 // Initialize with default embedding provider
 let documentManager: DocumentManager;
 
 async function initializeDocumentManager() {
-    console.error('[Server] initializeDocumentManager START');
+    logger.info('initializeDocumentManager START');
     const startTime = Date.now();
 
     if (!documentManager) {
-        console.error('[Server] Creating new DocumentManager...');
+        logger.info('Creating new DocumentManager...');
         // Get embedding model from environment variable (provider handles defaults)
         const embeddingModel = process.env.MCP_EMBEDDING_MODEL;
-        console.error(`[Server] Embedding model: ${embeddingModel || 'default'}`);
+        logger.info(`Embedding model: ${embeddingModel || 'default'}`);
         const embeddingProvider = createLazyEmbeddingProvider(embeddingModel);
-        console.error('[Server] Embedding provider created');
+        logger.info('Embedding provider created');
 
           // Constructor will use default paths automatically
-        console.error('[Server] Calling DocumentManager constructor...');
+        logger.info('Calling DocumentManager constructor...');
         documentManager = new DocumentManager(embeddingProvider);
-        console.error(`[Server] Document manager initialized with: ${embeddingProvider.getModelName()} (lazy loading)`);
-        console.error(`[Server] Data directory: ${documentManager.getDataDir()}`);
-        console.error(`[Server] Uploads directory: ${documentManager.getUploadsDir()}`);
+        logger.info(`Document manager initialized with: ${embeddingProvider.getModelName()} (lazy loading)`);
+        logger.info(`Data directory: ${documentManager.getDataDir()}`);
+        logger.info(`Uploads directory: ${documentManager.getUploadsDir()}`);
     } else {
-        console.error('[Server] DocumentManager already exists, reusing');
+        logger.info('DocumentManager already exists, reusing');
     }
 
     const endTime = Date.now();
-    console.error(`[Server] initializeDocumentManager END - took ${endTime - startTime}ms`);
+    logger.info(`initializeDocumentManager END - took ${endTime - startTime}ms`);
     return documentManager;
 }
 
@@ -303,12 +227,12 @@ server.addTool({
             }
             return `Document added successfully with ID: ${document.id}`;
         } catch (error) {
-            console.error('[Server] add_document error:', error);
+            logger.error('add_document error:', error);
             return `Error: Failed to add document - ${error instanceof Error ? error.message : String(error)}`;
         }
     },
 });
-console.error('[Server] Tool registered: add_document');
+logger.info('Tool registered: add_document');
 
 // Crawl documentation tool
 server.addTool({
@@ -338,12 +262,12 @@ server.addTool({
                 note: "Crawled content is untrusted. Review and sanitize before using it in prompts or responses.",
             }, null, 2);
         } catch (error) {
-            console.error('[Server] crawl_documentation error:', error);
+            logger.error('crawl_documentation error:', error);
             return `Error: Failed to crawl documentation - ${error instanceof Error ? error.message : String(error)}`;
         }
     },
 });
-console.error('[Server] Tool registered: crawl_documentation');
+logger.info('Tool registered: crawl_documentation');
 
 // Search documents tool
 server.addTool({
@@ -397,7 +321,7 @@ server.addTool({
         }
     },
 });
-console.error('[Server] Tool registered: search_documents');
+logger.info('Tool registered: search_documents');
 
 // Get document tool
 server.addTool({
@@ -420,7 +344,7 @@ server.addTool({
         }
     },
 });
-console.error('[Server] Tool registered: get_document');
+logger.info('Tool registered: get_document');
 
 // List documents tool
 server.addTool({
@@ -656,7 +580,7 @@ if (aiProviderSelection.enabled) {
                     args.document_id,
                     `Document with ID '${args.document_id}' not found. Use 'list_documents' to get available document IDs.`
                 );
-                console.error(`[AISearch] Starting AI-powered search (${selection.provider}) for document ${args.document_id}`);
+                logger.info(`AI-powered search (${selection.provider}) for document ${args.document_id}`);
 
                 // Perform AI search
                 const aiResult = await searchDocumentWithAi(
@@ -678,9 +602,9 @@ if (aiProviderSelection.enabled) {
             }
         },
     });
-    console.error(`[Server] AI search tool enabled (${aiProviderSelection.provider})`);
+    logger.info(`AI search tool enabled (${aiProviderSelection.provider})`);
 } else {
-    console.error(`[Server] AI search tool disabled (${aiProviderSelection.reason || 'provider not configured'})`);
+    logger.info(`AI search tool disabled (${aiProviderSelection.reason || 'provider not configured'})`);
 }
 
 // Query documents tool
@@ -824,11 +748,10 @@ server.addTool({
 });
 
 // Start the server
-console.error(`[SagaServer] ${getTimestamp()} About to start server with stdio transport...`);
-console.error(`[SagaServer] ${getTimestamp()} Memory before server.start(): ${getMemoryUsage()}`);
+logger.info(`${getTimestamp()} About to start server with stdio transport...`);
 
 server.start({
     transportType: "stdio",
 });
 
-console.error(`[SagaServer] ${getTimestamp()} Server started successfully!`);
+logger.info(`${getTimestamp()} Server started successfully!`);

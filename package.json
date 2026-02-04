@@ -5,8 +5,7 @@
   "main": "dist/server.js",
   "type": "module",
   "bin": {
-    "saga": "dist/server.js",
-    "saga-embeddings": "dist/embedding-cli.js"
+    "saga": "dist/server.js"
   },
   "homepage": "https://github.com/maxinedotdev/saga#readme",
   "repository": {
@@ -21,10 +20,6 @@
       "import": "./dist/server.js",
       "default": "./dist/server.js"
     },
-    "./embedding-cli": {
-      "import": "./dist/embedding-cli.js",
-      "default": "./dist/embedding-cli.js"
-    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -33,7 +28,6 @@
     "dev": "fastmcp dev src/server.ts",
     "dev:direct": "npx tsx src/server.ts",
     "dev:build": "npm run build && node dist/server.js",
-    "embeddings:check": "node dist/embedding-cli.js",
     "inspect": "npx fastmcp inspect src/server.ts",
     "promote:staging": "./promote-to-staging.sh",
     "switch:develop": "./switch-to-develop.sh",
