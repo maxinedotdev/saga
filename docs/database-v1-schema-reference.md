@@ -1006,7 +1006,6 @@ const timestamp = new Date().toISOString();
 
 ## Additional Resources
 
-- [Migration Guide (Legacy)](./database-v1-migration-guide.md) - Deprecated migration notes
 - [API Reference](./database-v1-api-reference.md) - LanceDBV1 API documentation
 - [Design Document](../plans/database-schema-v1-design.md) - Detailed design rationale
 - [Type Definitions](../src/types/database-v1.ts) - TypeScript type definitions

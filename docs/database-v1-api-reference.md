@@ -1262,7 +1262,6 @@ interface DatabaseStats {
 
 ## Additional Resources
 
-- [Migration Guide (Legacy)](./database-v1-migration-guide.md) - Deprecated migration notes
 - [Schema Reference](./database-v1-schema-reference.md) - Complete schema documentation
 - [Design Document](../plans/database-schema-v1-design.md) - Detailed design rationale
 - [Type Definitions](../src/types/database-v1.ts) - TypeScript type definitions

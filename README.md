@@ -140,8 +140,6 @@ delete the database when it detects a schema mismatch.
 rm -rf ~/.saga/lancedb
 ```
 
-If you still want to attempt a legacy migration, see
-`docs/database-v1-migration-guide.md` (deprecated).
 
 ### Performance Targets
 
@@ -168,7 +166,6 @@ If you still want to attempt a legacy migration, see
 
 ### Documentation
 
-- **[Migration Guide (Legacy)](docs/database-v1-migration-guide.md)** - Deprecated legacy migration notes
 - **[Schema Reference](docs/database-v1-schema-reference.md)** - Complete schema documentation
 - **[API Reference](docs/database-v1-api-reference.md)** - LanceDBV1 API documentation
 - **[Design Document](plans/database-schema-v1-design.md)** - Detailed design rationale

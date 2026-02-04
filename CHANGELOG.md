@@ -15,7 +15,7 @@
     - `MCP_EMBEDDING_PROVIDER` now only accepts `openai` (removed `transformers` option)
     - `MCP_EMBEDDING_BASE_URL` is now required (must point to OpenAI-compatible API)
     - `MCP_EMBEDDING_MODEL` defaults to `text-embedding-llama-nemotron-embed-1b-v2@q4_k_s`
-  - **Migration guide**: See `docs/REMOVE-LEGACY-COMPONENTS.md` for detailed migration instructions
+  - **Migration**: Saga v1 is migrationless. Delete legacy data and re-ingest.
 
 * **Update default embedding model for OpenAI-compatible provider**: Changed from `text-embedding-nomic-embed-text-v1.5` to `text-embedding-llama-nemotron-embed-1b-v2@q4_k_s`
   - **Migration required**: Users with existing LM Studio setups must download the new model (`text-embedding-llama-nemotron-embed-1b-v2@q4_k_s`)
@@ -51,7 +51,7 @@ MCP_AI_PROVIDERS='[
 ]'
 ```
 
-### Migration Instructions
+### Embedding Model Notes
 
 **For LM Studio users:**
 1. Open LM Studio and go to the "Discover" tab
@@ -59,12 +59,6 @@ MCP_AI_PROVIDERS='[
 3. Download the model (GGUF format recommended)
 4. Load the model in LM Studio's embedding server
 5. Restart your MCP client
-
-**To keep using the old model:**
-Set the environment variable explicitly:
-```
-MCP_EMBEDDING_MODEL=text-embedding-nomic-embed-text-v1.5
-```
 
 ### Dependencies
 
