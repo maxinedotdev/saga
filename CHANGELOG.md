@@ -1,3 +1,9 @@
+# [1.0.1](https://github.com/maxinedotdev/saga/compare/v1.0.0...v1.0.1) (2026-02-04)
+
+### Fixes
+
+* Update README branding for npm listing and publishing workflow readiness.
+
 # [1.0.0](https://github.com/maxinedotdev/saga/compare/v0.2.0...v1.0.0) (2026-02-02)
 
 ### Breaking Changes
