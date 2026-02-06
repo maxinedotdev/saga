@@ -46,11 +46,11 @@ function splitKeyValue(line: string, lineNumber: number): [string, string] {
 
 function parseString(raw: string): string {
     const quote = raw[0];
-    const inner = raw.slice(1, -1);
     if (quote === '"') {
-        return inner.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
+        // Reuse the JS string parser to avoid introducing unsafe unescape rules.
+        return JSON.parse(raw) as string;
     }
-    return inner;
+    return raw.slice(1, -1);
 }
 
 function parseArray(raw: string, lineNumber: number): TomlValue[] {
