@@ -313,7 +313,7 @@ Linux (systemd user service):
 npm run service:install:linux
 ```
 
-Windows (PowerShell + Windows service):
+Windows (PowerShell + Windows service, run terminal as Administrator):
 ```bash
 npm run service:install:windows
 ```
@@ -354,6 +354,37 @@ http://127.0.0.1:8080/mcp
 ```
 
 This avoids one-process-per-client stdio spawning and keeps Saga as a single managed process.
+
+Example MCP client configs:
+
+Kilo (`mcp_settings.json`) Saga entry:
+```json
+{
+  "saga": {
+    "type": "streamable-http",
+    "url": "http://127.0.0.1:8080/mcp",
+    "timeout": 600,
+    "disabled": false
+  }
+}
+```
+
+Codex (`~/.codex/config.toml`) Saga entry:
+```toml
+[mcp_servers.saga]
+enabled = true
+url = "http://127.0.0.1:8080/mcp"
+```
+
+Single-instance diagnostics:
+
+- If you see high CPU from many `Code Helper (Plugin)` processes, check parent commands. Non-Saga MCP servers (for example `synthetic-search`) can still spawn per client/session.
+- Confirm Saga is single-instance:
+  - macOS: `launchctl list | rg saga-mcp`
+  - Linux: `systemctl --user status dev.maxinedot.saga-mcp.service`
+  - Windows: `Get-Service SagaMcpService`
+- Trace process parents:
+  - `ps -axo pid,ppid,pcpu,command | rg -i "dist/server.js|synthetic-search|Code Helper"`
 
 Uninstall service helpers:
 ```bash
