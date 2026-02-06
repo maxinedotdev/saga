@@ -2,6 +2,39 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 
+const ISO_TIMESTAMP_PREFIX = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\]/;
+let consoleTimestampPatchApplied = false;
+
+function patchConsoleTimestamps(): void {
+    if (consoleTimestampPatchApplied) {
+        return;
+    }
+    consoleTimestampPatchApplied = true;
+
+    const patchMethod = (method: 'error' | 'warn' | 'info' | 'log' | 'debug') => {
+        const original = console[method].bind(console);
+        console[method] = ((...args: unknown[]) => {
+            if (
+                args.length > 0 &&
+                typeof args[0] === 'string' &&
+                ISO_TIMESTAMP_PREFIX.test(args[0])
+            ) {
+                original(...args);
+                return;
+            }
+            original(`[${new Date().toISOString()}]`, ...args);
+        }) as typeof console[typeof method];
+    };
+
+    patchMethod('error');
+    patchMethod('warn');
+    patchMethod('info');
+    patchMethod('log');
+    patchMethod('debug');
+}
+
+patchConsoleTimestamps();
+
 /**
  * Get the default data directory for the server
  */
@@ -272,7 +305,7 @@ export function getLogger(prefix: string): {
         ).join(' ')}`;
 
         // Always log to stderr (MCP standard)
-        console.error(`[${prefix}] [${level.toUpperCase()}]`, ...args);
+        console.error(`[${timestamp}] [${prefix}] [${level.toUpperCase()}]`, ...args);
 
         // Also write to logfile if enabled
         writeToLogfile(message);

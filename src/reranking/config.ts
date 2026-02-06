@@ -5,6 +5,13 @@
 import type { RerankerConfig, RerankerProviderType } from '../types.js';
 import { isAppleSilicon, getDefaultModelPath } from './apple-silicon-detection.js';
 
+export type RerankingRuntimeConfig = RerankerConfig & {
+    enabled: boolean;
+    mlxModelPath: string;
+    mlxUvPath: string;
+    mlxPythonPath: string;
+};
+
 /**
  * Default reranking configuration values
  */
@@ -28,7 +35,7 @@ const DEFAULT_CONFIG = {
  * Load reranking configuration from environment variables
  * @returns Reranking configuration
  */
-function loadConfig(): RerankerConfig & { enabled: boolean; mlxModelPath: string; mlxUvPath: string; mlxPythonPath: string } {
+function loadConfig(): RerankingRuntimeConfig {
     // Check if auto-configuration is enabled (default: true)
     const autoConfigureMlx = process.env.MCP_RERANKING_AUTO_CONFIGURE_MLX !== 'false';
     
@@ -78,7 +85,21 @@ function loadConfig(): RerankerConfig & { enabled: boolean; mlxModelPath: string
  * Reranking configuration loaded from environment variables
  * Reloaded on each access for testing support
  */
-export const RERANKING_CONFIG: RerankerConfig & { enabled: boolean; mlxModelPath: string; mlxUvPath: string; mlxPythonPath: string } = loadConfig();
+export const RERANKING_CONFIG: RerankingRuntimeConfig = loadConfig();
+
+/**
+ * Get full reranking runtime configuration (including MLX-specific fields)
+ * @returns Validated runtime reranking configuration
+ */
+export function getRerankingRuntimeConfig(): RerankingRuntimeConfig {
+    const config = loadConfig();
+
+    if (config.enabled) {
+        validateRerankingConfig();
+    }
+
+    return config;
+}
 
 /**
  * Validate reranking configuration
@@ -163,13 +184,7 @@ export function validateRerankingConfig(): void {
  * @returns Validated reranking configuration
  */
 export function getRerankingConfig(): RerankerConfig {
-    // Reload config to support testing
-    const config = loadConfig();
-
-    // Validate only if enabled
-    if (config.enabled) {
-        validateRerankingConfig();
-    }
+    const config = getRerankingRuntimeConfig();
 
     return {
         provider: config.provider,

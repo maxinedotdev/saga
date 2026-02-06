@@ -17,9 +17,8 @@ import type { Document } from './types.js';
 applyTomlConfig();
 
 const logger = getLogger('SagaServer');
-const getTimestamp = () => new Date().toISOString();
 
-logger.info(`${getTimestamp()} Server startup initiated`);
+logger.info('Server startup initiated');
 logger.info(`Process ID: ${process.pid}`);
 logger.info(`Node version: ${process.version}`);
 logger.info(`Platform: ${process.platform}`);
@@ -236,7 +235,7 @@ initializeMlxAutoConfig();
 // ============================================
 
 // Initialize server
-logger.info(`${getTimestamp()} About to create FastMCP server...`);
+logger.info('About to create FastMCP server...');
 
 const server = new FastMCP({
     name: "Documentation Server",
@@ -244,7 +243,7 @@ const server = new FastMCP({
 });
 
 logger.info('FastMCP server initialized');
-logger.info(`${getTimestamp()} FastMCP server created successfully`);
+logger.info('FastMCP server created successfully');
 
 // Initialize with default embedding provider
 let documentManager: DocumentManager;
@@ -337,7 +336,7 @@ function setupStdioLifecycleGuards(): void {
             return;
         }
         exiting = true;
-        logger.warn(`${getTimestamp()} Stdio lifecycle guard exit: ${reason} (pid=${process.pid}, ppid=${process.ppid})`);
+        logger.warn(`Stdio lifecycle guard exit: ${reason} (pid=${process.pid}, ppid=${process.ppid})`);
         process.exit(code);
     };
 
@@ -1025,7 +1024,7 @@ server.addTool({
 
 // Start the server
 const transportConfig = resolveTransportConfig();
-logger.info(`${getTimestamp()} About to start server with ${transportConfig.transportType} transport...`);
+logger.info(`About to start server with ${transportConfig.transportType} transport...`);
 if (transportConfig.transportType === 'httpStream') {
     const { host, port, endpoint } = transportConfig.httpStream;
     logger.info(`HTTP Stream endpoint: http://${host}:${port}${endpoint}`);
@@ -1036,4 +1035,4 @@ if (transportConfig.transportType === 'httpStream') {
 
 server.start(transportConfig);
 
-logger.info(`${getTimestamp()} Server started successfully!`);
+logger.info('Server started successfully!');

@@ -11,7 +11,8 @@ import { normalizeLanguageTag } from './code-block-utils.js';
 import { LanceDBV1 } from './vector-db/lance-db-v1.js';
 import { detectLanguages, getAcceptedLanguages, getLanguageConfidenceThreshold, isLanguageAllowed, getDefaultQueryLanguages } from './language-detection.js';
 import { ApiReranker } from './reranking/api-reranker.js';
-import { getRerankingConfig, isRerankingEnabled } from './reranking/config.js';
+import { MlxReranker } from './reranking/mlx-reranker.js';
+import { getRerankingRuntimeConfig, isRerankingEnabled } from './reranking/config.js';
 import type { ChunkV1, CodeBlockV1, DocumentTagV1, DocumentV1 } from './types/database-v1.js';
 
 const logger = getLogger('DocumentManager');
@@ -35,6 +36,7 @@ export class DocumentManager {
     private useGeneratedTagsInQuery: boolean;
     private reranker: Reranker | null = null;
     private rerankingEnabled: boolean = false;
+    private rerankerInitPromise: Promise<void> | null = null;
 
     constructor(embeddingProvider: EmbeddingProvider, vectorDatabase?: LanceDBV1) {
         // Always use default paths
@@ -57,9 +59,40 @@ export class DocumentManager {
         this.rerankingEnabled = isRerankingEnabled();
         if (this.rerankingEnabled) {
             try {
-                const config = getRerankingConfig();
-                this.reranker = new ApiReranker(config);
-                logger.info(`Reranker initialized (${config.provider}, ${config.model})`);
+                const config = getRerankingRuntimeConfig();
+
+                if (config.provider === 'mlx') {
+                    const mlxReranker = new MlxReranker({
+                        model: config.model,
+                        modelPath: config.mlxModelPath,
+                        uvPath: config.mlxUvPath,
+                        pythonPath: config.mlxPythonPath,
+                        maxCandidates: config.maxCandidates,
+                        topK: config.topK,
+                        timeout: config.timeout,
+                    });
+                    this.reranker = mlxReranker;
+                    this.rerankerInitPromise = mlxReranker.initialize()
+                        .then(() => {
+                            logger.info(`Reranker initialized (${config.provider}, ${config.model})`);
+                            this.rerankerInitPromise = null;
+                        })
+                        .catch((error) => {
+                            const initErrorMessage = error instanceof Error ? error.message : String(error);
+                            const initErrorStack = error instanceof Error ? error.stack : undefined;
+                            logger.error(`Reranker initialization failed: ${initErrorMessage}`);
+                            if (initErrorStack) {
+                                logger.error(initErrorStack);
+                            }
+                            this.rerankingEnabled = false;
+                            this.reranker = null;
+                            this.rerankerInitPromise = null;
+                        });
+                    logger.info(`Reranker initialization started (${config.provider}, ${config.model})`);
+                } else {
+                    this.reranker = new ApiReranker(config);
+                    logger.info(`Reranker initialized (${config.provider}, ${config.model})`);
+                }
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : String(error);
                 const errorStack = error instanceof Error ? error.stack : undefined;
@@ -199,7 +232,10 @@ export class DocumentManager {
         }
 
         // Check if vector DB is actually initialized
-        const isInitialized = (this.vectorDatabase as any).isInitialized?.() ?? true;
+        // Note: this.vectorDatabase could be null if initialization failed during retry loop
+        const isInitialized = this.vectorDatabase
+            ? (this.vectorDatabase as any).isInitialized?.() ?? true
+            : false;
         
         if (!isInitialized) {
             return false;
@@ -1012,27 +1048,36 @@ export class DocumentManager {
         // Stage 2: Rerank if enabled
         let results: DocumentDiscoveryResult[] = candidates;
         if (useReranking && this.reranker && candidates.length > 0) {
-            try {
-                // Fetch document contents for reranking
-                const documentContents: string[] = [];
-                for (const candidate of candidates) {
-                    const document = await this.getDocument(candidate.id);
-                    if (document) {
-                        documentContents.push(document.content);
-                    }
-                }
-                
-                // Perform reranking
-                const reranked = await this.reranker.rerank(queryText, documentContents, {
-                    topK: limit + offset
-                });
+            if (this.rerankerInitPromise) {
+                await this.rerankerInitPromise;
+            }
 
-                // Map reranked indices to results
-                results = this.mapRerankedResults(reranked, candidates);
-            } catch (error) {
-                logger.warn('Reranking failed, using vector-only results:', error);
-                // Fallback to vector-only results if reranking fails
+            if (!this.reranker || !this.reranker.isReady()) {
+                logger.warn('Reranker is not ready, using vector-only results');
                 results = candidates;
+            } else {
+                try {
+                    // Fetch document contents for reranking
+                    const documentContents: string[] = [];
+                    for (const candidate of candidates) {
+                        const document = await this.getDocument(candidate.id);
+                        if (document) {
+                            documentContents.push(document.content);
+                        }
+                    }
+                    
+                    // Perform reranking
+                    const reranked = await this.reranker.rerank(queryText, documentContents, {
+                        topK: limit + offset
+                    });
+
+                    // Map reranked indices to results
+                    results = this.mapRerankedResults(reranked, candidates);
+                } catch (error) {
+                    logger.warn('Reranking failed, using vector-only results:', error);
+                    // Fallback to vector-only results if reranking fails
+                    results = candidates;
+                }
             }
         }
         
