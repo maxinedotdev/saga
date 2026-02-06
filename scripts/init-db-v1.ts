@@ -19,7 +19,7 @@ import { getEmbeddingDimension } from '../src/utils.js';
 // Configuration
 // ============================================================================
 
-const DEFAULT_DB_PATH = path.join(os.homedir(), '.saga', 'vector-db');
+const DEFAULT_DB_PATH = path.join(os.homedir(), '.saga', 'lancedb');
 const SCHEMA_VERSION = '1.0.0';
 
 // ============================================================================
@@ -128,6 +128,7 @@ async function createV1Schema(db: any, options: { verbose: boolean }): Promise<v
                     sampleData = [{
                         id: crypto.randomUUID(),
                         title: '',
+                        content: '',
                         content_hash: '',
                         content_length: 0,
                         source: 'upload',

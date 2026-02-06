@@ -73,6 +73,58 @@ import { normalizeLanguageTag } from '../code-block-utils.js';
 
 const logger = getLogger('LanceDBV1');
 const SCHEMA_VERSION = '1.0.0';
+const REQUIRED_COLUMNS: Record<string, string[]> = {
+    documents: [
+        'id',
+        'title',
+        'content',
+        'content_hash',
+        'content_length',
+        'source',
+        'original_filename',
+        'file_extension',
+        'crawl_id',
+        'crawl_url',
+        'author',
+        'description',
+        'content_type',
+        'created_at',
+        'updated_at',
+        'processed_at',
+        'chunks_count',
+        'code_blocks_count',
+        'status',
+    ],
+    document_tags: ['id', 'document_id', 'tag', 'is_generated', 'created_at'],
+    document_languages: ['id', 'document_id', 'language_code', 'created_at'],
+    chunks: [
+        'id',
+        'document_id',
+        'chunk_index',
+        'start_position',
+        'end_position',
+        'content',
+        'content_length',
+        'embedding',
+        'surrounding_context',
+        'semantic_topic',
+        'created_at',
+    ],
+    code_blocks: [
+        'id',
+        'document_id',
+        'block_id',
+        'block_index',
+        'language',
+        'content',
+        'content_length',
+        'embedding',
+        'source_url',
+        'created_at',
+    ],
+    keywords: ['id', 'keyword', 'document_id', 'source', 'frequency', 'created_at'],
+    schema_version: ['id', 'version', 'applied_at', 'description'],
+};
 
 // ============================================================================
 // Helper Functions
@@ -295,6 +347,7 @@ export class LanceDBV1 implements ValidationDatabase {
         for (const tableName of tableNames) {
             try {
                 const table = await this.db!.openTable(tableName);
+                await this.ensureTableSchema(tableName, table);
                 this.setTableReference(tableName, table);
                 logger.debug(`Opened existing table: ${tableName}`);
             } catch (error) {
@@ -409,6 +462,37 @@ export class LanceDBV1 implements ValidationDatabase {
                     throw error;
                 }
             }
+        }
+    }
+
+    /**
+     * Ensure table schema contains all required columns.
+     * If columns are missing, instruct the user to recreate the database.
+     */
+    private async ensureTableSchema(tableName: keyof typeof REQUIRED_COLUMNS | string, table: LanceTable): Promise<void> {
+        const required = REQUIRED_COLUMNS[tableName as keyof typeof REQUIRED_COLUMNS];
+        if (!required) {
+            return;
+        }
+
+        try {
+            const schema = await (table as any).schema();
+            const fieldNames = new Set<string>((schema?.fields ?? []).map((field: { name?: string }) => field?.name).filter(Boolean));
+            const missing = required.filter((name) => !fieldNames.has(name));
+            if (missing.length === 0) {
+                return;
+            }
+
+            const message =
+                `LanceDB schema for table '${tableName}' is missing columns: ${missing.join(', ')}. ` +
+                `Delete the database directory at ${this.dbPath} and restart to recreate the schema.`;
+            logger.error(message);
+            throw new Error(message);
+        } catch (error) {
+            if (error instanceof Error) {
+                throw error;
+            }
+            throw new Error(`Failed to validate schema for table '${tableName}': ${String(error)}`);
         }
     }
     

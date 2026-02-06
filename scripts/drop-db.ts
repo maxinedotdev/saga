@@ -16,7 +16,7 @@ import chalk from 'chalk';
 // Configuration
 // ============================================================================
 
-const DEFAULT_DB_PATH = path.join(os.homedir(), '.saga', 'vector-db');
+const DEFAULT_DB_PATH = path.join(os.homedir(), '.saga', 'lancedb');
 
 // ============================================================================
 // Utility Functions

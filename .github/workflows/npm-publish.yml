@@ -62,7 +62,7 @@ jobs:
         if: steps.published.outputs.published != 'true'
         id: changelog
         run: |
-          node .github/workflows/generate-release-notes.js
+          node .github/workflows/generate-release-notes.js > release_notes.md
           echo "notes_file=release_notes.md" >> "$GITHUB_OUTPUT"
 
       - name: Create Git tag

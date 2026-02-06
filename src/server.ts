@@ -3,6 +3,7 @@
 import 'dotenv/config';
 import { FastMCP } from "fastmcp";
 import { z } from "zod";
+import { applyTomlConfig } from './config.js';
 import { createLazyEmbeddingProvider } from './embedding-provider.js';
 import { DocumentManager } from './document-manager.js';
 import { resolveAiProviderSelection, searchDocumentWithAi } from './ai-search-provider.js';
@@ -10,6 +11,8 @@ import { crawlDocumentation } from './documentation-crawler.js';
 import { extractHtmlContent, looksLikeHtml } from './html-extraction.js';
 import { getLogger } from './utils.js';
 import type { Document } from './types.js';
+
+applyTomlConfig();
 
 const logger = getLogger('SagaServer');
 const getTimestamp = () => new Date().toISOString();
@@ -146,6 +149,86 @@ function normalizeContentType(contentType?: string | null): string {
 function getMaxSearchResults(requested?: number): number {
     const defaultLimit = parseInt(process.env.MCP_MAX_SEARCH_RESULTS || '10');
     return requested ?? defaultLimit;
+}
+
+function normalizeTransport(value: string | undefined): 'stdio' | 'httpStream' {
+    const raw = (value || 'stdio').trim().toLowerCase();
+    if (!raw) {
+        return 'stdio';
+    }
+    const compact = raw.replace(/[_\s-]/g, '');
+    if (compact === 'http' || compact === 'httpstream' || compact === 'streamablehttp') {
+        return 'httpStream';
+    }
+    return 'stdio';
+}
+
+function normalizeEndpoint(value: string | undefined): `/${string}` {
+    const raw = (value || '/mcp').trim();
+    if (!raw) {
+        return '/mcp';
+    }
+    return (raw.startsWith('/') ? raw : `/${raw}`) as `/${string}`;
+}
+
+function resolveTransportConfig(): { transportType: 'stdio' } | { transportType: 'httpStream'; httpStream: { host: string; port: number; endpoint: `/${string}`; stateless?: boolean } } {
+    const transportType = normalizeTransport(process.env.MCP_TRANSPORT);
+    if (transportType === 'httpStream') {
+        const isPublic = process.env.MCP_HTTP_PUBLIC === 'true';
+        const host = process.env.MCP_HTTP_HOST || (isPublic ? '0.0.0.0' : '127.0.0.1');
+        const portRaw = process.env.MCP_HTTP_PORT || '8080';
+        const parsedPort = parseInt(portRaw, 10);
+        const port = Number.isFinite(parsedPort) ? parsedPort : 8080;
+        const endpoint = normalizeEndpoint(process.env.MCP_HTTP_ENDPOINT);
+        const stateless = process.env.MCP_HTTP_STATELESS === 'true' ? true : undefined;
+
+        return {
+            transportType: 'httpStream',
+            httpStream: {
+                host,
+                port,
+                endpoint,
+                stateless,
+            },
+        };
+    }
+
+    return { transportType: 'stdio' };
+}
+
+function setupStdioLifecycleGuards(): void {
+    let exiting = false;
+    const exitSafely = (reason: string, code = 0) => {
+        if (exiting) {
+            return;
+        }
+        exiting = true;
+        logger.warn(`${getTimestamp()} Stdio lifecycle guard exit: ${reason} (pid=${process.pid}, ppid=${process.ppid})`);
+        process.exit(code);
+    };
+
+    if (!process.stdin.isTTY) {
+        process.stdin.resume();
+        process.stdin.on('end', () => exitSafely('stdin ended'));
+        process.stdin.on('close', () => exitSafely('stdin closed'));
+        process.stdin.on('error', (error) => {
+            logger.warn(`Stdin error detected: ${error instanceof Error ? error.message : String(error)}`);
+            exitSafely('stdin errored', 1);
+        });
+    } else {
+        logger.info('Stdio lifecycle guard: stdin is TTY, skipping stdin watchers');
+    }
+
+    const orphanGuard = setInterval(() => {
+        if (process.ppid === 1) {
+            exitSafely('parent process disappeared (ppid=1)');
+        }
+    }, 5000);
+    orphanGuard.unref();
+
+    process.on('exit', () => {
+        clearInterval(orphanGuard);
+    });
 }
 
 async function getVectorDatabase(manager: DocumentManager): Promise<any> {
@@ -807,10 +890,16 @@ server.addTool({
 });
 
 // Start the server
-logger.info(`${getTimestamp()} About to start server with stdio transport...`);
+const transportConfig = resolveTransportConfig();
+logger.info(`${getTimestamp()} About to start server with ${transportConfig.transportType} transport...`);
+if (transportConfig.transportType === 'httpStream') {
+    const { host, port, endpoint } = transportConfig.httpStream;
+    logger.info(`HTTP Stream endpoint: http://${host}:${port}${endpoint}`);
+} else {
+    setupStdioLifecycleGuards();
+    logger.info('Stdio lifecycle guard enabled');
+}
 
-server.start({
-    transportType: "stdio",
-});
+server.start(transportConfig);
 
 logger.info(`${getTimestamp()} Server started successfully!`);

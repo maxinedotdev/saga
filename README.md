@@ -251,11 +251,129 @@ node dist/scripts/drop-db.ts
 
 ## Configuration
 
-Configure via environment variables:
+Configure via environment variables or TOML.
+
+Saga will read a TOML config file from `~/.saga/saga.toml` by default. Override the path with `MCP_CONFIG_TOML` or `--config /path/to/saga.toml`. Environment variables already set take precedence over TOML.
+
+Example TOML:
+
+```toml
+transport = "stdio"
+
+[http]
+host = "127.0.0.1"
+port = 8080
+endpoint = "/mcp"
+public = false
+stateless = false
+
+[env]
+MCP_BASE_DIR = "~/.saga"
+MCP_EMBEDDING_PROVIDER = "openai"
+MCP_EMBEDDING_BASE_URL = "http://localhost:1234"
+MCP_EMBEDDING_MODEL = "llama-nemotron-embed-1b-v2"
+```
+
+### Single-instance mode (recommended for multiple MCP clients)
+
+Run one Saga process as a background service and point MCP clients at the same HTTP endpoint.
+
+1. Create `~/.saga/saga.toml`:
+
+```toml
+[server]
+transport = "httpStream"
+base_dir = "~/.saga"
+
+[server.http]
+host = "127.0.0.1"
+port = 8080
+endpoint = "/mcp"
+public = false
+stateless = false
+
+[env]
+MCP_EMBEDDING_PROVIDER = "openai"
+MCP_EMBEDDING_BASE_URL = "http://127.0.0.1:1234/v1"
+MCP_EMBEDDING_MODEL = "text-embedding-multilingual-e5-large-instruct"
+MCP_AI_PROVIDER = "openai"
+MCP_AI_BASE_URL = "http://127.0.0.1:1234/v1"
+MCP_AI_MODEL = "ministral-3-8b-instruct-2512"
+```
+
+2. Install a background service (choose your OS):
+
+macOS (launchd):
+```bash
+npm run service:install:mac
+```
+
+Linux (systemd user service):
+```bash
+npm run service:install:linux
+```
+
+Windows (PowerShell + Windows service):
+```bash
+npm run service:install:windows
+```
+
+By default service scripts run `dist/server.js` from the current Saga checkout. Override runtime path when needed:
+
+```bash
+SAGA_RUNTIME_DIR=~/Documents/git/saga-staging npm run service:install:mac
+SAGA_RUNTIME_DIR=~/Documents/git/saga-staging npm run service:install:linux
+```
+
+Windows override example:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/install-windows-service.ps1 -RuntimeDir C:\path\to\saga-staging
+```
+
+3. Check service status:
+
+macOS:
+```bash
+npm run service:status:mac
+```
+
+Linux:
+```bash
+npm run service:status:linux
+```
+
+Windows:
+```bash
+npm run service:status:windows
+```
+
+4. Set MCP clients to URL mode:
+
+```txt
+http://127.0.0.1:8080/mcp
+```
+
+This avoids one-process-per-client stdio spawning and keeps Saga as a single managed process.
+
+Uninstall service helpers:
+```bash
+npm run service:uninstall:mac
+npm run service:uninstall:linux
+npm run service:uninstall:windows
+```
+
+Environment variables:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `MCP_CONFIG_TOML` | Path to Saga TOML config | `~/.saga/saga.toml` |
 | `MCP_BASE_DIR` | Data storage directory | `~/.saga` |
+| `MCP_TRANSPORT` | Transport: `stdio` or `httpStream` | `stdio` |
+| `MCP_HTTP_HOST` | Host for HTTP Stream transport | `127.0.0.1` |
+| `MCP_HTTP_PORT` | Port for HTTP Stream transport | `8080` |
+| `MCP_HTTP_ENDPOINT` | Endpoint for HTTP Stream transport | `/mcp` |
+| `MCP_HTTP_PUBLIC` | Bind HTTP Stream to `0.0.0.0` when true | `false` |
+| `MCP_HTTP_STATELESS` | Enable stateless HTTP Stream mode | `false` |
 | `MCP_EMBEDDING_PROVIDER` | `openai` (OpenAI-compatible API only) | `openai` |
 | `MCP_EMBEDDING_MODEL` | Embedding model name | `llama-nemotron-embed-1b-v2` |
 | `MCP_EMBEDDING_BASE_URL` | OpenAI-compatible base URL (required) | - |
