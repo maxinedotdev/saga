@@ -7,6 +7,13 @@
 * improve query fallback behavior for multi-token searches with better keyword normalization
 * derive MCP `serverInfo` dynamically from package metadata so clients report `saga` with the active release version
 
+### Features
+
+* add cross-platform background server support for a single Saga MCP instance:
+  - macOS launchd service scripts
+  - Linux systemd user service scripts
+  - Windows service scripts
+
 ### Dependencies
 
 * upgrade `@lancedb/lancedb` from `0.23.0` to `0.24.1`

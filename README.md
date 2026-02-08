@@ -281,6 +281,7 @@ MCP_EMBEDDING_MODEL = "llama-nemotron-embed-1b-v2"
 ### Single-instance mode (recommended for multiple MCP clients)
 
 Run one Saga process as a background service and point MCP clients at the same HTTP endpoint.
+This is supported across all three platforms: macOS (launchd), Linux (systemd user service), and Windows (Windows service).
 
 1. Create `~/.saga/saga.toml`:
 
