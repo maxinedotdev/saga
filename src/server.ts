@@ -237,9 +237,44 @@ initializeMlxAutoConfig();
 // Initialize server
 logger.info('About to create FastMCP server...');
 
+function resolveServerMetadata(): { name: string; version: `${number}.${number}.${number}` } {
+    const fallbackName = 'saga';
+    const fallbackVersion: `${number}.${number}.${number}` = '0.0.0';
+    const toSemver = (value?: string): `${number}.${number}.${number}` => {
+        if (typeof value === 'string' && /^\d+\.\d+\.\d+$/.test(value)) {
+            return value as `${number}.${number}.${number}`;
+        }
+        return fallbackVersion;
+    };
+
+    const envVersion = process.env.npm_package_version;
+    if (envVersion) {
+        return { name: fallbackName, version: toSemver(envVersion) };
+    }
+
+    try {
+        const packageJsonPath = path.resolve(process.cwd(), 'package.json');
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as {
+            name?: string;
+            version?: string;
+        };
+
+        const packageName = typeof packageJson.name === 'string' ? packageJson.name : fallbackName;
+        const normalizedName = packageName.includes('/') ? (packageName.split('/').pop() || fallbackName) : packageName;
+        const version = toSemver(packageJson.version);
+
+        return { name: normalizedName, version };
+    } catch (error) {
+        logger.warn(`Failed to resolve package metadata, using fallback server metadata: ${error}`);
+        return { name: fallbackName, version: fallbackVersion };
+    }
+}
+
+const serverMetadata = resolveServerMetadata();
+
 const server = new FastMCP({
-    name: "Documentation Server",
-    version: "1.0.0",
+    name: serverMetadata.name,
+    version: serverMetadata.version,
 });
 
 logger.info('FastMCP server initialized');

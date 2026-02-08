@@ -1,3 +1,19 @@
+# [1.1.0](https://github.com/maxinedotdev/saga/compare/v1.0.1...v1.1.0) (2026-02-08)
+
+### Fixes
+
+* improve document relevance for short queries by tightening lexical gating and prioritizing full-phrase matches
+* reduce unrelated retrieval results for package/library lookups (for example `pixi`, `pixi.js`, `svelte-pixi`)
+* improve query fallback behavior for multi-token searches with better keyword normalization
+* derive MCP `serverInfo` dynamically from package metadata so clients report `saga` with the active release version
+
+### Dependencies
+
+* upgrade `@lancedb/lancedb` from `0.23.0` to `0.24.1`
+* upgrade `fastmcp` from `3.31.0` to `3.32.0`
+* upgrade `vite-tsconfig-paths` from `6.0.5` to `6.1.0`
+* upgrade `@types/node` from `25.2.1` to `25.2.2`
+
 # [1.0.1](https://github.com/maxinedotdev/saga/compare/v1.0.0...v1.0.1) (2026-02-04)
 
 ### Fixes
