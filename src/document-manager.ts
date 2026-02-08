@@ -1202,6 +1202,13 @@ export class DocumentManager {
         // if at least one lexical match is present.
         const queryKeywords = this.extractKeywords(queryText);
         if (queryKeywords.length > 0) {
+            const fullQueryMatches = finalResults.filter(result =>
+                this.hasFullQueryPhraseMatch(result, queryText)
+            );
+            if (fullQueryMatches.length > 0 && queryKeywords.length <= 3) {
+                finalResults.splice(0, finalResults.length, ...fullQueryMatches);
+            }
+
             const lexicalScores = finalResults.map(result => ({
                 result,
                 lexicalRatio: this.getLexicalKeywordMatchRatio(result, queryKeywords),
@@ -1325,6 +1332,35 @@ export class DocumentManager {
         }
 
         return fields.join(' ').toLowerCase();
+    }
+
+    private hasFullQueryPhraseMatch(result: DocumentDiscoveryResult, queryText: string): boolean {
+        const normalizedQuery = this.normalizeLexicalText(queryText);
+        if (normalizedQuery.length < 3) {
+            return false;
+        }
+
+        const normalizedHaystack = this.normalizeLexicalText(this.buildLexicalHaystack(result));
+        if (!normalizedHaystack) {
+            return false;
+        }
+
+        if (normalizedHaystack.includes(normalizedQuery)) {
+            return true;
+        }
+
+        // Also compare compact forms to catch punctuation/spacing variants
+        const compactQuery = normalizedQuery.replace(/\s+/g, '');
+        const compactHaystack = normalizedHaystack.replace(/\s+/g, '');
+        return compactQuery.length >= 3 && compactHaystack.includes(compactQuery);
+    }
+
+    private normalizeLexicalText(text: string): string {
+        return text
+            .toLowerCase()
+            .replace(/[^\p{L}\p{N}]+/gu, ' ')
+            .trim()
+            .replace(/\s+/g, ' ');
     }
 
     private matchesFilters(metadata: Record<string, any> | undefined, filters: MetadataFilter): boolean {
