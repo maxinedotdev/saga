@@ -1,4 +1,4 @@
-// Types for the MCP Documentation Server
+// Types for Saga
 
 export interface CodeBlock {
     id: string;

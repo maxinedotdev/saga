@@ -348,7 +348,9 @@ function resolveTransportConfig(): { transportType: 'stdio' } | { transportType:
         const parsedPort = parseInt(portRaw, 10);
         const port = Number.isFinite(parsedPort) ? parsedPort : 8080;
         const endpoint = normalizeEndpoint(process.env.MCP_HTTP_ENDPOINT);
-        const stateless = process.env.MCP_HTTP_STATELESS === 'true' ? true : undefined;
+        // Default to stateless mode for HTTP Stream to avoid per-session SSE streams.
+        const statelessEnv = (process.env.MCP_HTTP_STATELESS || '').trim().toLowerCase();
+        const stateless = statelessEnv === 'false' ? false : true;
 
         return {
             transportType: 'httpStream',
@@ -1061,8 +1063,12 @@ server.addTool({
 const transportConfig = resolveTransportConfig();
 logger.info(`About to start server with ${transportConfig.transportType} transport...`);
 if (transportConfig.transportType === 'httpStream') {
-    const { host, port, endpoint } = transportConfig.httpStream;
+    const { host, port, endpoint, stateless } = transportConfig.httpStream;
     logger.info(`HTTP Stream endpoint: http://${host}:${port}${endpoint}`);
+    logger.info(`HTTP Stream mode: ${stateless === false ? 'stateful' : 'stateless'}`);
+    if (stateless === false) {
+        logger.warn('Stateful HTTP Stream mode uses MCP sessions and SSE streams.');
+    }
 } else {
     setupStdioLifecycleGuards();
     logger.info('Stdio lifecycle guard enabled');

@@ -93,7 +93,7 @@ Please provide:
 ## Scope
 
 This security policy covers:
-- The MCP Documentation Server codebase
+- The Saga codebase
 - Direct dependencies and their known vulnerabilities
 - File processing and storage mechanisms
 - MCP protocol implementation

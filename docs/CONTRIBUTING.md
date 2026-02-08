@@ -1,6 +1,6 @@
-# Contributing to MCP Documentation Server
+# Contributing to Saga
 
-🎉 Thank you for your interest in contributing to the MCP Documentation Server! This project aims to provide a robust, TypeScript-based Model Context Protocol server for document management and semantic search.
+🎉 Thank you for your interest in contributing to Saga! This project aims to provide a robust, TypeScript-based Model Context Protocol server for document management and semantic search.
 
 ## Table of Contents
 
@@ -496,4 +496,4 @@ Contributors will be recognized in:
 
 **Happy Contributing!** 🎉
 
-*Let's build an amazing MCP documentation server together!*
+*Let's build an amazing Saga together!*
